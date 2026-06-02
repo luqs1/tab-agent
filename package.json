@@ -1,0 +1,22 @@
+{
+  "name": "tab-agent",
+  "version": "0.0.1",
+  "description": "An agent that runs entirely on a browser tab.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "worker": "wrangler dev worker.ts",
+    "deploy:worker": "wrangler deploy worker.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "just-bash": "^3.0.1",
+    "pyodide": "^0.27.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}
