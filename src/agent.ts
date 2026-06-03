@@ -10,8 +10,9 @@ import { loadSkills } from "./skills";
 
 const PROXY = import.meta.env.VITE_LLM_PROXY ?? "http://localhost:8787/v1/chat/completions";
 // Any tool-capable free model from https://openrouter.ai/models?max_price=0
-// Good picks: qwen/qwen3-coder:free · moonshotai/kimi-k2.6:free · meta-llama/llama-3.3-70b-instruct:free
-const MODEL = import.meta.env.VITE_MODEL ?? "qwen/qwen3-coder:free";
+// Free models get congested (429s); if the default is busy, try another:
+// z-ai/glm-4.5-air:free · qwen/qwen3-coder:free · nvidia/nemotron-3-nano-30b-a3b:free · moonshotai/kimi-k2.6:free
+const MODEL = import.meta.env.VITE_MODEL ?? "z-ai/glm-4.5-air:free";
 
 const SYSTEM = `You are tab-agent, an autonomous agent running entirely inside a browser tab.
 You have a Python sandbox (tool: python_exec) and a bash-like shell (tool: shell).
