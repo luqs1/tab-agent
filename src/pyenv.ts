@@ -34,6 +34,15 @@ export async function mountUserFolder() {
   log(`✅ mounted "${dir.name}" at /mnt/user`);
 }
 
+/** Write a file into the mounted real folder, if one is mounted. Returns false if not. */
+export async function writeUserFile(path: string, content: string): Promise<boolean> {
+  await ready;
+  if (!userFs) return false;
+  pyodide.FS.writeFile("/mnt/user/" + path, content);
+  await userFs.syncfs(); // persist to the real folder on disk
+  return true;
+}
+
 /** Run Python, return whatever it printed. Flushes writes back to the real folder. */
 export async function runPython(code: string): Promise<string> {
   await ready;

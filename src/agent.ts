@@ -1,22 +1,29 @@
 // The agent loop: LLM -> tool calls -> execute -> feed results back -> repeat.
 //
-// Uses the OpenAI chat-completions format, because we talk to OpenRouter (free
-// models) through a tiny proxy (worker.ts) that holds the key and adds CORS.
+// Uses the OpenAI chat-completions format. The browser calls OpenRouter directly
+// (it sends permissive CORS) — there is no backend.
 import { log } from "./ui";
 import { runPython } from "./pyenv";
 import { runShell } from "./shell";
 import { callMcp, mcpTools } from "./mcp";
 import { loadSkills } from "./skills";
 import { getKey, getModel } from "./settings";
+import { writeInstaller } from "./installer";
 
-// The browser calls OpenRouter directly — it sends permissive CORS, so no proxy
-// and no backend are needed. The key comes from localStorage (see settings.ts).
+// The key comes from localStorage (see settings.ts).
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 const SYSTEM = `You are tab-agent, an autonomous agent running entirely inside a browser tab.
 You have a Python sandbox (tool: python_exec) and a bash-like shell (tool: shell).
 The user's real files are mounted at /mnt/user. A fast scratch dir is at /scratch.
-Prefer python_exec for real work; use shell for quick file ops and pipelines.${loadSkills()}`;
+Prefer python_exec for real work; use shell for quick file ops and pipelines.
+
+You run in a browser sandbox, so you CANNOT install system software or run native
+tools (brew, system pip, arbitrary binaries) yourself. When a task needs that, do
+NOT pretend you can. Instead call write_installer to generate a script the user
+runs once to grant that access, and briefly tell them what it will do. Keep the
+script minimal, idempotent, and safe. Do everything else (reading/writing their
+files, analysis, scaffolding) directly in the sandbox.${loadSkills()}`;
 
 // Built-in tools in OpenAI function-calling format.
 function builtinTools() {
@@ -35,6 +42,22 @@ function builtinTools() {
         name: "shell",
         description: "Run a bash-like command (grep/sed/awk/cat/ls/…) over the in-tab filesystem.",
         parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "write_installer",
+        description:
+          "Generate a script the user runs once to perform actions the sandbox can't (install software, run native tools). Downloads a .command file and explains how to run it.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: 'e.g. "setup" -> setup.command' },
+            script: { type: "string", description: "bash to run on the user's machine; minimal and idempotent" },
+          },
+          required: ["name", "script"],
+        },
       },
     },
   ];
@@ -57,6 +80,7 @@ function allTools() {
 async function dispatch(name: string, args: any): Promise<string> {
   if (name === "python_exec") return runPython(args.code);
   if (name === "shell") return runShell(args.command);
+  if (name === "write_installer") return writeInstaller(args.name, args.script);
   if (name.startsWith("mcp__")) return callMcp(name.slice(5), args);
   return `unknown tool: ${name}`;
 }
