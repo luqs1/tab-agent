@@ -1,17 +1,15 @@
-// "Installer hand-off": the sandbox can't mutate the host system (install software,
-// run native tools), so instead the agent GENERATES a script the user runs once.
-// The browser writes the file; the user authorizes it by running it. This relocates
-// the one unavoidable native step into a single, friendly, user-blessed action.
+// "Installer hand-off": the sandbox can't mutate the host system, so the agent
+// generates a script the user runs once. To make it CLICK-ONLY (no terminal
+// typing, no chmod), we ship it inside a .zip that carries the executable bit
+// (see zip.ts — verified that macOS restores the +x on double-click extract).
 //
-// macOS reality (deliberate OS security, not a bug we can patch):
-//  - the browser CANNOT set the executable bit, so we tell the user to run it with
-//    `sh <file>` (which needs no chmod), the simplest no-terminal-skill path;
-//  - browser-written files are quarantined, so a Gatekeeper prompt may appear —
-//    that prompt IS the "authorize" gesture. Warning-free needs Apple code-signing.
-import { writeUserFile } from "./pyenv";
+// Flow for the user: double-click the .zip -> double-click setup.command -> it
+// runs (a Gatekeeper "unidentified developer" prompt appears; clicking Open is
+// the authorization). Notarizing later removes that prompt.
+import { zipWithMode } from "./zip";
 
-function download(name: string, content: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: "text/x-shellscript" }));
+function download(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
@@ -21,34 +19,25 @@ function download(name: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Emit a runnable installer the user can execute once. Downloads it (lands in
- * ~/Downloads) and also writes it into the mounted folder if one is mounted.
- */
+/** Emit a click-to-run installer the user executes once. Returns plain instructions. */
 export async function writeInstaller(name: string, script: string): Promise<string> {
-  const file = name.endsWith(".command") || name.endsWith(".sh") ? name : `${name}.command`;
+  const base = name.replace(/\.(command|sh|zip)$/i, "") || "setup";
+  const command = `${base}.command`;
   const body = script.startsWith("#!")
     ? script
     : `#!/bin/bash\nset -euo pipefail\n\n${script}\n\necho\necho "✅ Done. You can close this window."\n`;
 
-  download(file, body);
-
-  let alsoMounted = "";
-  try {
-    if (await writeUserFile(file, body)) alsoMounted = " (also saved into your mounted folder)";
-  } catch {
-    /* no folder mounted — the download is enough */
-  }
+  download(`${base}.zip`, zipWithMode(command, body));
 
   return [
-    `Created installer "${file}"${alsoMounted}.`,
+    `Created "${base}.zip" (in your Downloads).`,
     ``,
-    `To run it (no terminal skills needed):`,
-    `  1. Open the Terminal app (Spotlight → type "Terminal" → Enter).`,
-    `  2. Paste this and press Enter:`,
-    `       sh ~/Downloads/${file}`,
-    `  3. Approve any macOS security prompt.`,
+    `To run it — all clicks, no typing:`,
+    `  1. Double-click "${base}.zip" to unzip it.`,
+    `  2. Double-click "${command}".`,
+    `  3. If macOS warns it's from an unidentified developer: right-click it →`,
+    `     Open → Open. (That's you authorizing it.)`,
     ``,
-    `It will run the steps it needs system permission for, then exit.`,
+    `It runs the steps that need your permission, shows progress, then finishes.`,
   ].join("\n");
 }

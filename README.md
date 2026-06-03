@@ -45,6 +45,24 @@ Host that single file on anything static: **GitHub Pages**, S3, or locally with
 > `localhost`) — that's still just file delivery, not a backend. OPFS + File
 > System Access both work fine over plain static HTTP.
 
+## System actions: the click-to-run installer
+
+The sandbox can't install software or run native tools. So when a task needs that,
+the agent calls `write_installer` and emits a **click-only** installer — no terminal,
+no typing, no `chmod`:
+
+1. A `.zip` downloads. The browser can't set a file's executable bit, but a **zip
+   stores the Unix mode**, and macOS restores it on unzip. So the zip carries a
+   `setup.command` with mode `0755` (`src/zip.ts`, a tiny dependency-free zip writer
+   — verified end-to-end: `ditto`-extracted file is `-rwxr-xr-x` and runs with no chmod).
+2. Double-click the `.zip` → double-click `setup.command` → it runs.
+3. macOS shows an "unidentified developer" prompt; right-click → Open → Open is the
+   user *authorizing* it. (Notarizing with an Apple Developer cert removes the prompt.)
+
+This relocates the one unavoidable native step into a single, all-clicks, user-blessed
+action. A persistent signed companion app (for live system access without per-task
+files) is the heavier future option — see issue #2.
+
 ## The validation gauntlet
 
 Run these in order — each proves one risky piece:

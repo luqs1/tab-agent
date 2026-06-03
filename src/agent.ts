@@ -49,7 +49,7 @@ function builtinTools() {
       function: {
         name: "write_installer",
         description:
-          "Generate a script the user runs once to perform actions the sandbox can't (install software, run native tools). Downloads a .command file and explains how to run it.",
+          "Generate a script the user runs once to perform actions the sandbox can't (install software, run native tools). Downloads a click-to-run .zip (double-click zip → double-click setup.command, no terminal typing) and explains the clicks.",
         parameters: {
           type: "object",
           properties: {
