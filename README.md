@@ -1,38 +1,56 @@
 # tab-agent
 
-An agent that runs **entirely on a browser tab**. No install — the user just opens a URL.
+An agent that runs **entirely in a browser tab — no backend.** The whole app is
+static JS/WASM; nothing runs on a server. The user brings a free OpenRouter key
+(stored in `localStorage`) and the browser calls OpenRouter directly.
 
-- **Model**: remote **free** models via OpenRouter (`:free`, no per-token charge), behind a tiny key-hiding proxy (`worker.ts`)
+- **Model**: remote **free** models via OpenRouter (`:free`, no per-token charge), called **directly from the browser** (OpenRouter sends permissive CORS — no proxy needed)
 - **Execution**: in-tab CPython (Pyodide) + a bash-like shell (`just-bash`)
 - **Files**: the user's *real* folder via the File System Access API, mounted into Pyodide; OPFS as a fast scratch dir
 - **Tools**: remote MCP servers over Streamable HTTP
 - **Skills**: markdown under `skills/` injected into the prompt
 
-This is a **de-risking sketch**: the goal is to prove the four hard integrations work
+This is a **de-risking sketch**: the goal is to prove the hard integrations work
 end-to-end, not to be a finished product.
+
+## No backend — really
+
+The only "server" anywhere is **dumb static file delivery** (handing the browser
+an HTML file). All agent logic — the loop, tool execution, filesystem, MCP, the
+LLM call — runs in the tab. The key is entered in the UI and never leaves the
+browser except in the direct request to OpenRouter.
 
 ## Run it
 
 ```bash
 bun install
-
-# 1. LLM proxy (holds the OpenRouter key, adds CORS). Free key: https://openrouter.ai/keys
-echo 'OPENROUTER_API_KEY=sk-or-v1-...' > .dev.vars
-bun run worker            # -> http://localhost:8787
-
-# 2. the app
-cp .env.example .env.local   # defaults already point at the local worker
-bun run dev               # -> http://localhost:5173
+bun run dev          # -> http://localhost:5173  (Vite dev server = hot-reload, still no app backend)
 ```
 
-Open http://localhost:5173 in **Chrome or Edge** (File System Access API is Chromium-only).
+Open in **Chrome or Edge**, paste a free key from https://openrouter.ai/keys into
+the **OpenRouter key** field, click **Save key**, and go.
+
+### Ship it as one file
+
+```bash
+bun run build        # -> dist/index.html  (the ENTIRE app inlined into one file)
+```
+
+Host that single file on anything static: **GitHub Pages**, S3, or locally with
+`python3 -m http.server -d dist`. No server logic, no env, no secrets.
+
+> ⚠️ **Don't open `dist/index.html` directly via `file://`.** Verified: the LLM
+> call works from `file://`, but Chrome blocks **OPFS** for `file://` origins
+> (`SecurityError`), so the filesystem breaks. Serve it over `http(s)://` (even
+> `localhost`) — that's still just file delivery, not a backend. OPFS + File
+> System Access both work fine over plain static HTTP.
 
 ## The validation gauntlet
 
 Run these in order — each proves one risky piece:
 
-1. **"print 2+2 in python"** → agent loop + Pyodide + LLM proxy all work.
-2. **"list the files in /scratch"** → OPFS mount works (all browsers).
+1. **"print 2+2 in python"** → agent loop + Pyodide + direct OpenRouter call all work.
+2. **"list the files in /scratch"** → OPFS works.
 3. Click **Mount a folder**, then **"read every file in /mnt/user and summarize"** → the killer feature: agent on your *real* local files.
 4. **"create /mnt/user/haiku.md with a haiku about tabs"** → reload, check the file is on disk → write + `syncfs` works.
 5. Set `VITE_MCP_URL` to a real server, ask something needing its tool → MCP path + the CORS reality.
@@ -40,9 +58,10 @@ Run these in order — each proves one risky piece:
 ## Architecture
 
 ```
-BROWSER TAB
+BROWSER TAB (the entire app — no backend)
   Chat UI ─► Agent loop (src/agent.ts)
-               ├─ LLM ──► worker.ts proxy ──► OpenRouter (free models)
+               ├─ LLM ──► fetch() ──► OpenRouter (free models, direct, CORS-ok)
+               │           key from localStorage (src/settings.ts)
                └─ tools
                     ├─ python_exec ─► Pyodide (src/pyenv.ts)
                     │     /mnt/user ◄─ your real folder (FSA, async, Chromium)
@@ -60,14 +79,12 @@ BROWSER TAB
 - **No streaming** — responses arrive in full per turn.
 - **Skills are eagerly loaded** into every prompt. Real harnesses lazy-load by
   description (progressive disclosure). See `src/skills.ts`.
-- **OpenRouter key lives in the proxy**, not the client — the one piece of server
-  you deploy once. The end *user* installs and configures nothing.
-- **Free models are rate-limited against your key** (~20 req/min; 50/day under 10
-  credits, 1000/day at ≥10). No per-token charge. If you deploy this publicly, add
-  an Origin allow-list in `worker.ts` so strangers can't drain your limits.
-- **Free-model tool calling is uneven** — quality/reliability varies by model.
-  Swap the default via `VITE_MODEL` (must be a `tools`-capable `:free` model).
+- **The key sits in `localStorage` and is sent directly to OpenRouter.** Fine for
+  a personal tool / bring-your-own-key. Each user uses their own key, so there's
+  no shared rate limit and no one gets charged for anyone else.
+- **Free-model tool calling is uneven** — quality/reliability varies by model,
+  and free models get rate-limited (429) when congested. Switch models in the UI;
+  default is `z-ai/glm-4.5-air:free`.
 - `node:zlib` is stubbed (`src/shims/zlib.ts`); `just-bash`'s gzip commands are
   no-ops in the browser (as it documents). Wire `fflate` if you need them.
 - Firefox/Safari: OPFS works, but **Mount a folder** (FSA) does not.
-```

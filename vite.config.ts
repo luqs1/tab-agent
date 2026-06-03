@@ -1,7 +1,12 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
+import { viteSingleFile } from "vite-plugin-singlefile";
 
 export default defineConfig({
+  // Inline all JS/CSS into a single index.html on build, so `dist/index.html` is
+  // the whole app in one file. Host it on any dumb static server (GitHub Pages,
+  // S3, `python -m http.server`) — there is no backend.
+  plugins: [viteSingleFile()],
   resolve: {
     alias: {
       // just-bash's browser build still imports node:zlib for its (browser-dead)
@@ -9,16 +14,6 @@ export default defineConfig({
       "node:zlib": fileURLToPath(new URL("./src/shims/zlib.ts", import.meta.url)),
     },
   },
-  server: {
-    // OPFS sync access handles + cross-origin isolation niceties.
-    // Harmless locally; required if you later run WASM threads.
-    headers: {
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
-    },
-  },
-  // pyodide ships its own wasm; we load it from CDN in index.html for the sketch,
-  // so nothing special is needed here yet.
   optimizeDeps: {
     exclude: ["pyodide"],
   },

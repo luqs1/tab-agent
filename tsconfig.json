@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "worker.ts"]
+  "include": ["src"]
 }

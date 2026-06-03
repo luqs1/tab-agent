@@ -7,12 +7,11 @@ import { runPython } from "./pyenv";
 import { runShell } from "./shell";
 import { callMcp, mcpTools } from "./mcp";
 import { loadSkills } from "./skills";
+import { getKey, getModel } from "./settings";
 
-const PROXY = import.meta.env.VITE_LLM_PROXY ?? "http://localhost:8787/v1/chat/completions";
-// Any tool-capable free model from https://openrouter.ai/models?max_price=0
-// Free models get congested (429s); if the default is busy, try another:
-// z-ai/glm-4.5-air:free · qwen/qwen3-coder:free · nvidia/nemotron-3-nano-30b-a3b:free · moonshotai/kimi-k2.6:free
-const MODEL = import.meta.env.VITE_MODEL ?? "z-ai/glm-4.5-air:free";
+// The browser calls OpenRouter directly — it sends permissive CORS, so no proxy
+// and no backend are needed. The key comes from localStorage (see settings.ts).
+const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 const SYSTEM = `You are tab-agent, an autonomous agent running entirely inside a browser tab.
 You have a Python sandbox (tool: python_exec) and a bash-like shell (tool: shell).
@@ -63,17 +62,28 @@ async function dispatch(name: string, args: any): Promise<string> {
 }
 
 export async function runAgent(userText: string, maxTurns = 10) {
+  const key = getKey();
+  if (!key) {
+    log('⚠️ No OpenRouter key set — paste a free key (openrouter.ai/keys) in the field above.');
+    return;
+  }
+
   const messages: any[] = [
     { role: "system", content: SYSTEM },
     { role: "user", content: userText },
   ];
 
   for (let turn = 0; turn < maxTurns; turn++) {
-    const resp = await fetch(PROXY, {
+    const resp = await fetch(ENDPOINT, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${key}`,
+        "HTTP-Referer": location.origin,
+        "X-Title": "tab-agent",
+      },
       body: JSON.stringify({
-        model: MODEL,
+        model: getModel(),
         messages,
         tools: allTools(),
         tool_choice: "auto",
