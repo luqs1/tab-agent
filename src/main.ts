@@ -18,11 +18,10 @@ import { LOCAL_MODELS, loadLocalModel, localReady, gpuAvailable } from "./local"
 const MCP_URL = import.meta.env.VITE_MCP_URL;
 
 const WELCOME =
-  "Hi! I'm **tab.agent** 👋 I live entirely in this browser tab and can help " +
-  "with everyday computer chores — tidying folders, renaming photos, summarizing " +
-  "documents, making lists. Your files stay on your computer.\n\n" +
-  "Use **📁 Share a folder** (top right) to let me work with your real files, " +
-  "then just tell me what you need.";
+  "Hi! I'm **tab.agent** 👋 I live in this tab and can help you " +
+  "do real things on your computer, without installing anything new. \n\n" +
+  "Use **📁 Share a folder** to let me work with your real files, " +
+  "then just tell me what you need to do.";
 
 const connected = () => hasKey() || (getProvider() === "local" && getLocalModel() !== "");
 
