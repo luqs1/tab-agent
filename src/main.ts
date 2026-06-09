@@ -75,7 +75,18 @@ if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
 // The ⚙ button just reopens the connection card.
 onClick("settings", () => showOnboard(true));
 
+// Folder sharing needs the File System Access API — Chrome/Edge only.
+const FSA_OK = "showDirectoryPicker" in window;
+if (!FSA_OK) (document.getElementById("pick") as HTMLButtonElement).style.opacity = "0.55";
+
 onClick("pick", async () => {
+  if (!FSA_OK) {
+    note(
+      "Sharing a folder only works in Chrome or Edge — this browser doesn't allow web pages " +
+        "to work with folders yet. I can still chat and do everything else right here."
+    );
+    return;
+  }
   try {
     const { name, path } = await mountUserFolder();
     await shellCd(path); // the shell now starts where the user's files are
