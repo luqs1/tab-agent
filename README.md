@@ -19,7 +19,7 @@ wordmark is the status light (amber = thinking, green = ready).
 - **Voice**: local dictation, Parakeet TDT 0.6B v3 (onnxruntime-web)
 - **Sharing**: workflows encoded in the URL fragment; the app downloads itself
   as a single file
-- **Tools**: remote MCP servers over Streamable HTTP
+- **Tools**: remote MCP servers over Streamable HTTP, connectable at runtime (⚙)
 - **Skills**: markdown under `skills/` injected into the prompt
 
 ## No backend
@@ -98,7 +98,8 @@ Each step proves one risky piece:
    local files.
 4. "create haiku.md in my folder with a haiku about tabs" → reload, check disk
    → writes + `syncfs`.
-5. Set `VITE_MCP_URL` to a real server, ask something needing its tool → MCP + CORS.
+5. Open ⚙, connect a tool server (e.g. `https://mcp.deepwiki.com/mcp`), ask
+   something needing its tool → MCP + CORS. Verified against DeepWiki.
 
 ## Architecture
 
@@ -132,6 +133,24 @@ BROWSER TAB (the entire app)
   no-ops. Wire `fflate` if needed.
 - Firefox/Safari: OPFS works, but folder sharing (FSA) does not — the app says
   so and dims the button. On-device AI and dictation also do best in Chromium.
+
+## MCP
+
+Remote servers connect from ⚙ (Streamable HTTP, must allow CORS; persisted,
+reconnects at boot). stdio servers can't run in a tab.
+
+Direction — in-tab servers: most MCP servers are Python or TypeScript, and the
+pieces exist to run them inside the tab itself. TS servers can connect through
+the SDK's `InMemoryTransport` (no network at all); Python servers could run in
+the Pyodide we already ship; Rust servers compile to wasm via the component
+toolchain — see [wasmcp](https://github.com/wasmcp/wasmcp) (MCP servers as wasm
+components), Microsoft's [Wassette](https://opensource.microsoft.com/blog/2025/08/06/introducing-wassette-webassembly-based-tools-for-ai-agents/)
+(wasm components exposed as MCP tools), and a browser
+[proof-of-concept](https://github.com/beekmarks/mcp-wasm). The catch for
+anything useful: in-tab servers inherit the browser's network rules, so a
+"GitHub MCP server in wasm" still can't call api.github.com unless that API
+allows CORS. In-tab servers shine for compute/file tools; network-bound ones
+mostly still need a CORS-friendly remote.
 
 ## On-device AI
 
