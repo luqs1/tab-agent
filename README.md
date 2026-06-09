@@ -148,6 +148,18 @@ Hard-won constraints (all verified live):
 - 8B-q4 models still misfire (bash into python_exec, repeated failing calls);
   the loop nudges with a "you already tried exactly this" note on repeats.
 
+## Dictation (local ASR)
+
+The 🎤 button in the composer runs **NVIDIA Parakeet TDT 0.6B v3** in the tab
+via [parakeet.js](https://www.npmjs.com/package/parakeet.js) (onnxruntime-web),
+loaded from CDN only on first use after an explicit size warning (~620 MB int8,
+one time). Audio never leaves the machine. While you talk, the whole take is
+re-transcribed on a self-pacing loop into the textbox (editable before Send);
+stopping does a final full-context pass. Verified live: the wasm-int8 path
+decodes ~realtime; the fp16 WebGPU encoder fails ort-web session creation
+(std::bad_alloc), and chunked streaming degenerates on this model — hence
+whole-take decoding.
+
 ## Shared filesystem (shell ⇄ python)
 
 `shell` and `python_exec` see the SAME files: just-bash runs on an `IFileSystem`

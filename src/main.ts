@@ -1,8 +1,9 @@
 // Wiring: boot pyodide, connect MCP, hook up the friendly chat shell.
 import {
-  say, userSay, note, error, status, thinking,
+  say, userSay, workflowSay, note, error, status, thinking,
   onClick, inputValue, showOnboard, showFolderChip,
 } from "./ui";
+import { asrSupported, asrReady, loadAsr, startDictation, stopDictation, dictating } from "./asr";
 import { ready, mountUserFolder, scratchPersists } from "./pyenv";
 import { shellCd } from "./shell";
 import { decodeWorkflowHash, workflowParams, fillParams } from "./wf";
@@ -98,12 +99,13 @@ onClick("pick", async () => {
 });
 
 let busy = false;
-async function send(textOverride?: string) {
+async function send(textOverride?: string, wf?: { title: string; body: string }) {
   const box = document.getElementById("msg") as HTMLInputElement;
   const text = (textOverride ?? box.value).trim();
   if (!text || busy) return;
   if (!textOverride) box.value = "";
-  userSay(text);
+  if (wf) workflowSay(wf.title, wf.body);
+  else userSay(text);
   if (getProvider() === "local") {
     if (!localReady()) {
       note("My on-device brain is still warming up — give it a moment, then ask again.");
@@ -172,10 +174,59 @@ document.getElementById("msg")!.addEventListener("keydown", (e) => {
       values[input.dataset.param!] = input.value.trim();
     }
     close();
-    send("Please carry out these instructions now:\n\n" + fillParams(wf.instructions, values));
+    const filled = fillParams(wf.instructions, values);
+    send("Please carry out these instructions now:\n\n" + filled, {
+      title: wf.title ?? "from a link",
+      body: filled,
+    });
   });
   card.hidden = false;
 })();
+
+// ---- dictation: local Parakeet ASR streaming into the textbox ----
+{
+  const micBtn = document.getElementById("mic") as HTMLButtonElement;
+  if (!asrSupported()) micBtn.hidden = true;
+  let armed = false;
+  let baseText = "";
+  onClick("mic", async () => {
+    const box = document.getElementById("msg") as HTMLInputElement;
+    if (dictating()) {
+      micBtn.classList.remove("rec");
+      micBtn.textContent = "🎤";
+      const final = await stopDictation();
+      if (final) box.value = baseText + final;
+      box.focus();
+      return;
+    }
+    if (!asrReady()) {
+      if (!armed) {
+        armed = true;
+        note(
+          "To take dictation I need to download a speech model first — Parakeet, about 620 MB, " +
+            "one time. It listens entirely on this computer; your voice never goes online. " +
+            "Click the mic again to start the download."
+        );
+        return;
+      }
+      if (!(await loadAsr())) {
+        armed = false;
+        return;
+      }
+    }
+    baseText = box.value ? box.value.replace(/\s+$/, "") + " " : "";
+    try {
+      await startDictation((text) => {
+        box.value = baseText + text;
+      });
+      micBtn.classList.add("rec");
+      micBtn.textContent = "⏹";
+      note("Listening… click ⏹ when you're done — then edit the text however you like.");
+    } catch (e) {
+      error("I couldn't use the microphone: " + (e as Error).message);
+    }
+  });
+}
 
 // ---- save-a-copy: the whole app is one file, so it can hand itself out ----
 onClick("savecopy", async () => {

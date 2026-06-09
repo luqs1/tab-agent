@@ -360,6 +360,46 @@
       #msg { flex: 1; border: 0; background: none; padding: 8px 0; }
       #msg:focus { box-shadow: none; }
 
+      #mic.rec {
+        background: var(--accent-soft);
+        border-color: var(--accent-deep);
+        animation: recpulse 1.4s ease-in-out infinite;
+      }
+      @keyframes recpulse {
+        50% { box-shadow: 1.5px 1.5px 0 var(--ink), 0 0 0 6px rgba(226, 114, 91, 0.18); }
+      }
+
+      /* shared workflows: third-party content, so it gets its own identity —
+         heavier ink frame, a "shared with you" badge, a hint of paper tilt */
+      #wfcard {
+        border: 2px solid var(--ink);
+        box-shadow: 4px 4px 0 var(--ink);
+        transform: rotate(-0.3deg);
+      }
+      .wf-badge {
+        display: inline-block;
+        background: var(--ink);
+        color: var(--paper);
+        font-size: 12.5px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border-radius: 999px;
+        padding: 4px 12px;
+        margin-bottom: 10px;
+      }
+
+      /* a workflow being run in chat — on the user's behalf, but not their words */
+      .msg.wfmsg {
+        align-self: flex-end;
+        background: var(--accent-soft);
+        color: var(--ink);
+        border: 1.5px dashed var(--accent-deep);
+        border-bottom-right-radius: 6px;
+      }
+      .msg.wfmsg summary { cursor: pointer; font-size: 13.5px; color: var(--accent-deep); }
+      .msg.wfmsg pre { background: rgba(255, 255, 255, 0.65); margin: 8px 0 0; }
+
       .fineprint {
         width: min(720px, 100%);
         margin: 8px auto 0;
@@ -382,6 +422,7 @@
 
     <main id="chat">
       <section id="wfcard" class="card" hidden>
+        <span class="wf-badge">📦 Shared with you</span>
         <h2 id="wf-title">This link came with instructions</h2>
         <p>Someone packed a task into this link. Here's <em>exactly</em> what they're asking me to do —
         I won't start until you say so, and you should only run it if you trust the sender.</p>
@@ -428,6 +469,7 @@
     <footer>
       <div class="composer">
         <input id="msg" placeholder="Ask me to help with something…" autocomplete="off" />
+        <button id="mic" class="ghost" title="Dictate — speech stays on this computer">🎤</button>
         <button id="send" class="primary">Send</button>
       </div>
       <p class="fineprint">

@@ -48,6 +48,18 @@ export function userSay(text: string) {
   add(el);
 }
 
+/** A shared workflow being run — on the user's behalf, but not their words. */
+export function workflowSay(title: string, instructions: string) {
+  const el = document.createElement("div");
+  el.className = "msg wfmsg";
+  const head = document.createElement("div");
+  head.innerHTML = `📦 Running shared workflow: <strong>${esc(title)}</strong>`;
+  const d = document.createElement("details");
+  d.innerHTML = `<summary>see the steps</summary><pre>${esc(instructions)}</pre>`;
+  el.append(head, d);
+  add(el);
+}
+
 /** A soft centered system line ("Folder shared", …). */
 export function note(text: string) {
   const el = document.createElement("div");
