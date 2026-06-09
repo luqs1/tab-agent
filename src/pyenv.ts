@@ -86,6 +86,10 @@ export async function runPython(code: string): Promise<string> {
   await ready;
   captured = "";
   try {
+    // runPythonAsync does NOT auto-load imports — without this, `import numpy`
+    // etc. fail with ModuleNotFoundError. Best-effort: a name Pyodide doesn't
+    // ship just isn't loaded here, and the import itself reports the failure.
+    await pyodide.loadPackagesFromImports(code).catch(() => {});
     await pyodide.runPythonAsync(code);
   } catch (e) {
     captured += "\n[python error] " + (e as Error).message;

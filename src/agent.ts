@@ -130,6 +130,22 @@ async function dispatch(name: string, args: any): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Free/local models run with small context windows; one `cat` of a big file or
+// a chatty script can blow the next completion. Cap each tool result, keeping
+// the head and tail (the start sets up the result; the tail usually carries the
+// error/answer) and marking what was dropped so the model knows it's partial.
+const MAX_TOOL_CHARS = 8000;
+function clampToolOutput(out: string): string {
+  if (out.length <= MAX_TOOL_CHARS) return out;
+  const half = Math.floor(MAX_TOOL_CHARS / 2);
+  const dropped = out.length - MAX_TOOL_CHARS;
+  return (
+    out.slice(0, half) +
+    `\n\n…[${dropped} characters trimmed to fit — re-run targeting just the part you need, e.g. grep/head/tail or slice the file]…\n\n` +
+    out.slice(out.length - half)
+  );
+}
+
 // Free models get rate-limited. Try the user's model first, then fall through
 // the free fallbacks; retry each once on 429 before moving on.
 async function complete(key: string, messages: any[]): Promise<any> {
@@ -180,14 +196,23 @@ function describe(name: string, args: any): { label: string; detail?: string } {
   return { label: `using ${name.replace(/^mcp__/, "")}…`, detail: JSON.stringify(args, null, 2) };
 }
 
+// The running conversation, kept across sends so the agent remembers earlier
+// turns: follow-ups ("rename that file", "what did you find?") and "keep going"
+// after a maxTurns pause all need the prior messages. Lives for the session.
+const history: any[] = [];
+
 export async function runAgent(userText: string, maxTurns = 10) {
   const key = getKey();
   if (!key && !(getProvider() === "local" && localReady())) return; // main.ts reopens onboarding
 
-  const messages: any[] = [
-    { role: "system", content: systemPrompt() },
-    { role: "user", content: userText },
-  ];
+  // Keep one running history. Refresh the system prompt each turn — the folder
+  // mount (and so the file guidance) can change between sends.
+  const sys = { role: "system", content: systemPrompt() };
+  if (history.length === 0) history.push(sys);
+  else history[0] = sys;
+  history.push({ role: "user", content: userText });
+  const messages = history;
+
   const seenCalls = new Map<string, number>(); // small local models love repeating a failing call
 
   for (let turn = 0; turn < maxTurns; turn++) {
@@ -234,13 +259,14 @@ export async function runAgent(userText: string, maxTurns = 10) {
       const done = activity(label, detail);
       // A throwing tool (e.g. an MCP network blip) must not kill the run: turn
       // the error into a tool result the model can react to, and always clear
-      // the spinner.
+      // the spinner. Then cap the result to protect the context window.
       let out: string;
       try {
         out = await dispatch(name, args);
       } catch (e) {
         out = `[tool error] ${(e as Error).message ?? String(e)}`;
       }
+      out = clampToolOutput(out);
       done();
       const sig = name + JSON.stringify(args);
       const seen = (seenCalls.get(sig) ?? 0) + 1;

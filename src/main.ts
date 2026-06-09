@@ -192,7 +192,10 @@ function offerWorkflow(wf: Workflow, fromLink: boolean) {
   for (const name of workflowParams(wf.instructions)) {
     const row = document.createElement("div");
     row.className = "step";
-    row.innerHTML = `<span class="chip">${name}</span>`;
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = name; // param names come from attacker-controlled #wf= links — never innerHTML
+    row.appendChild(chip);
     const input = document.createElement("input");
     input.dataset.param = name;
     input.placeholder = name;
