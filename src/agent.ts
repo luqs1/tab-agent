@@ -232,7 +232,15 @@ export async function runAgent(userText: string, maxTurns = 10) {
       }
       const { label, detail } = describe(name, args);
       const done = activity(label, detail);
-      let out = await dispatch(name, args);
+      // A throwing tool (e.g. an MCP network blip) must not kill the run: turn
+      // the error into a tool result the model can react to, and always clear
+      // the spinner.
+      let out: string;
+      try {
+        out = await dispatch(name, args);
+      } catch (e) {
+        out = `[tool error] ${(e as Error).message ?? String(e)}`;
+      }
       done();
       const sig = name + JSON.stringify(args);
       const seen = (seenCalls.get(sig) ?? 0) + 1;
