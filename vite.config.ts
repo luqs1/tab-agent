@@ -6,6 +6,7 @@ export default defineConfig({
   // Inline all JS/CSS into a single index.html on build, so `dist/index.html` is
   // the whole app in one file. Host it on any dumb static server (GitHub Pages,
   // S3, `python -m http.server`) — there is no backend.
+  base: "./", // works at any subpath (e.g. github.io/tab-agent/)
   plugins: [viteSingleFile()],
   resolve: {
     alias: {

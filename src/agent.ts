@@ -2,21 +2,38 @@
 //
 // Uses the OpenAI chat-completions format. The browser calls OpenRouter directly
 // (it sends permissive CORS) — there is no backend.
-import { log } from "./ui";
-import { runPython } from "./pyenv";
+import { say, note, error, activity, thinking } from "./ui";
+import { runPython, userMount } from "./pyenv";
 import { runShell } from "./shell";
 import { callMcp, mcpTools } from "./mcp";
 import { loadSkills } from "./skills";
-import { getKey, getModel } from "./settings";
+import { getKey, getModel, getProvider, FALLBACK_MODELS } from "./settings";
+import { localComplete, localReady } from "./local";
 import { writeInstaller } from "./installer";
 
 // The key comes from localStorage (see settings.ts).
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
-const SYSTEM = `You are tab-agent, an autonomous agent running entirely inside a browser tab.
+function systemPrompt(): string {
+  const mount = userMount();
+  const folders = mount
+    ? `The user shared their real folder "${mount.name}" — it is mounted at ${mount.path}
+(same name as on their computer; the shell starts there). Work on their files THERE.
+There is also a persistent scratch dir at /scratch for temporary work.`
+    : `The user has NOT shared a folder yet, so you cannot see their real files —
+if the task needs them, ask them to click "Share a folder" (top right). You do
+have a persistent scratch dir at /scratch for your own work.`;
+
+  return `You are tab.agent, a friendly helper that runs entirely inside a browser tab.
+Your user may not be technical: reply in warm, plain language, keep answers short,
+and never paste big blobs of code or output into chat — do the work with your tools
+and describe the result simply.
 You have a Python sandbox (tool: python_exec) and a bash-like shell (tool: shell).
-The user's real files are mounted at /mnt/user. A fast scratch dir is at /scratch.
+Both tools share ONE filesystem; a file written by one is visible to the other.
+${folders}
 Prefer python_exec for real work; use shell for quick file ops and pipelines.
+python_exec accepts ONLY Python source; shell accepts ONLY bash. If a tool call
+errors, change your approach — never repeat the identical call.
 
 You run in a browser sandbox, so you CANNOT install system software or run native
 tools (brew, system pip, arbitrary binaries) yourself. When a task needs that, do
@@ -24,15 +41,20 @@ NOT pretend you can. Instead call write_installer to generate a script the user
 runs once to grant that access, and briefly tell them what it will do. Keep the
 script minimal, idempotent, and safe. Do everything else (reading/writing their
 files, analysis, scaffolding) directly in the sandbox.${loadSkills()}`;
+}
 
 // Built-in tools in OpenAI function-calling format.
 function builtinTools() {
+  const mount = userMount();
+  const files = mount
+    ? `Files: the user's folder "${mount.name}" is at ${mount.path}; /scratch for temp work.`
+    : "Files: /scratch only (the user hasn't shared a folder yet).";
   return [
     {
       type: "function",
       function: {
         name: "python_exec",
-        description: "Execute Python in-browser. Read/write the user's files under /mnt/user.",
+        description: `Run PYTHON source code (never shell syntax). ${files}`,
         parameters: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
       },
     },
@@ -40,7 +62,7 @@ function builtinTools() {
       type: "function",
       function: {
         name: "shell",
-        description: "Run a bash-like command (grep/sed/awk/cat/ls/…) over the in-tab filesystem.",
+        description: `Run a BASH command (echo/ls/grep/sed/cat/mkdir/…), never Python. Same filesystem as python_exec.`,
         parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
       },
     },
@@ -85,51 +107,99 @@ async function dispatch(name: string, args: any): Promise<string> {
   return `unknown tool: ${name}`;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Free models get rate-limited. Try the user's model first, then fall through
+// the free fallbacks; retry each once on 429 before moving on.
+async function complete(key: string, messages: any[]): Promise<any> {
+  if (getProvider() === "local") return localComplete(messages, allTools());
+  const models = [getModel(), ...FALLBACK_MODELS.filter((m) => m !== getModel())];
+  let last: any = { error: { message: "no models attempted" } };
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let resp: any;
+      try {
+        resp = await fetch(ENDPOINT, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${key}`,
+            "HTTP-Referer": location.origin,
+            "X-Title": "tab.agent",
+          },
+          body: JSON.stringify({ model, messages, tools: allTools(), tool_choice: "auto" }),
+        }).then((r) => r.json());
+      } catch (e) {
+        resp = { error: { message: (e as Error).message } };
+      }
+      const code = resp.error?.code ?? resp.error?.status;
+      if (!resp.error) return resp;
+      last = resp;
+      if (code === 401 || code === 403) return resp; // bad key — retrying won't help
+      if (code === 429 || code >= 500) {
+        if (attempt === 0) {
+          note("It's a little busy right now — giving it another try…");
+          await sleep(2500);
+          continue;
+        }
+        note("Still busy — switching to a backup brain…");
+        break; // next model
+      }
+      return resp; // non-retryable error
+    }
+  }
+  return last;
+}
+
+// Plain-language descriptions of what each tool call is doing.
+function describe(name: string, args: any): { label: string; detail?: string } {
+  if (name === "python_exec") return { label: "doing a bit of work behind the scenes…", detail: args.code };
+  if (name === "shell") return { label: "looking through the files…", detail: args.command };
+  if (name === "write_installer") return { label: "preparing a one-click setup file for you…", detail: args.script };
+  return { label: `using ${name.replace(/^mcp__/, "")}…`, detail: JSON.stringify(args, null, 2) };
+}
+
 export async function runAgent(userText: string, maxTurns = 10) {
   const key = getKey();
-  if (!key) {
-    log('⚠️ No OpenRouter key set — paste a free key (openrouter.ai/keys) in the field above.');
-    return;
-  }
+  if (!key && !(getProvider() === "local" && localReady())) return; // main.ts reopens onboarding
 
   const messages: any[] = [
-    { role: "system", content: SYSTEM },
+    { role: "system", content: systemPrompt() },
     { role: "user", content: userText },
   ];
+  const seenCalls = new Map<string, number>(); // small local models love repeating a failing call
 
   for (let turn = 0; turn < maxTurns; turn++) {
-    const resp = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${key}`,
-        "HTTP-Referer": location.origin,
-        "X-Title": "tab-agent",
-      },
-      body: JSON.stringify({
-        model: getModel(),
-        messages,
-        tools: allTools(),
-        tool_choice: "auto",
-      }),
-    }).then((r) => r.json());
+    thinking(true);
+    const resp = await complete(key, messages);
+    thinking(false);
 
     if (resp.error) {
-      log("❌ " + JSON.stringify(resp.error));
+      const detail = resp.error.message ?? JSON.stringify(resp.error);
+      error(
+        resp.error.code === 401
+          ? "That key didn't work — open ⚙ and check it was pasted in full."
+          : "I hit a snag talking to my brain: " + detail
+      );
       return;
     }
 
     const msg = resp.choices?.[0]?.message;
     if (!msg) {
-      log("❌ unexpected response: " + JSON.stringify(resp).slice(0, 300));
+      error("I got a reply I didn't understand. Mind trying that again?");
       return;
     }
 
     messages.push(msg); // push the assistant turn verbatim (keeps tool_calls intact)
-    if (msg.content) log("🤖 " + msg.content);
+    if (msg.content) say(msg.content);
 
     const calls = msg.tool_calls ?? [];
-    if (calls.length === 0) return; // no tools requested -> we're done
+    if (calls.length === 0) {
+      // Some (especially local) models go quiet after acting; don't end on silence.
+      if (!msg.content && seenCalls.size > 0)
+        note("I've finished working on that — ask me to double-check the result if you like.");
+      return;
+    }
 
     for (const call of calls) {
       const name = call.function.name;
@@ -139,10 +209,16 @@ export async function runAgent(userText: string, maxTurns = 10) {
       } catch {
         args = {};
       }
-      log(`🔧 ${name} ${JSON.stringify(args).slice(0, 100)}`);
-      const out = await dispatch(name, args);
+      const { label, detail } = describe(name, args);
+      const done = activity(label, detail);
+      let out = await dispatch(name, args);
+      done();
+      const sig = name + JSON.stringify(args);
+      const seen = (seenCalls.get(sig) ?? 0) + 1;
+      seenCalls.set(sig, seen);
+      if (seen > 1) out += "\n\n(You already ran exactly this and got this same result. Do NOT run it again — try a different approach.)";
       messages.push({ role: "tool", tool_call_id: call.id, content: out });
     }
   }
-  log("⏹️ hit max turns");
+  note("That was a lot of steps, so I paused here — say “keep going” to continue.");
 }

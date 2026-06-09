@@ -1,40 +1,133 @@
-// Wiring: boot pyodide, connect MCP, hook up the buttons.
-import { log, status, onClick, inputValue } from "./ui";
+// Wiring: boot pyodide, connect MCP, hook up the friendly chat shell.
+import {
+  say, userSay, note, error, status, thinking,
+  onClick, inputValue, showOnboard, showFolderChip,
+} from "./ui";
 import { ready, mountUserFolder } from "./pyenv";
+import { shellCd } from "./shell";
 import { connectMcp } from "./mcp";
 import { runAgent } from "./agent";
-import { getKey, setKey, hasKey } from "./settings";
+import {
+  setKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
+} from "./settings";
+import { LOCAL_MODELS, loadLocalModel, localReady, gpuAvailable } from "./local";
 
 // Point this at any browser-CORS-friendly MCP server.
 const MCP_URL = import.meta.env.VITE_MCP_URL;
 
-// Restore a previously saved key into the field (masked input).
-(document.getElementById("key") as HTMLInputElement).value = getKey();
+const WELCOME =
+  "Hi! I'm **tab.agent** 👋 I live entirely in this browser tab and can help " +
+  "with everyday computer chores — tidying folders, renaming photos, summarizing " +
+  "documents, making lists. Your files stay on your computer.\n\n" +
+  "Use **📁 Share a folder** (top right) to let me work with your real files, " +
+  "then just tell me what you need.";
+
+const connected = () => hasKey() || (getProvider() === "local" && getLocalModel() !== "");
+
+say(WELCOME);
+if (!connected()) showOnboard(true);
+
+// The on-device option: populate the model choices; hide it without WebGPU.
+{
+  const sel = document.getElementById("localmodel") as HTMLSelectElement;
+  for (const m of LOCAL_MODELS) {
+    const o = document.createElement("option");
+    o.value = m.id;
+    o.textContent = m.label;
+    sel.appendChild(o);
+  }
+  // A saved model that's no longer in the curated list is stale — ignore it.
+  if (LOCAL_MODELS.some((m) => m.id === getLocalModel())) sel.value = getLocalModel();
+  else setLocalModel("");
+  if (!gpuAvailable()) (document.getElementById("local-section") as HTMLElement).hidden = true;
+}
+
+onClick("getkey", () => window.open("https://openrouter.ai/keys", "_blank"));
 
 onClick("savekey", () => {
   setKey(inputValue("key"));
-  log(hasKey() ? "✅ key saved (localStorage)" : "key cleared");
+  if (hasKey()) {
+    setProvider("openrouter");
+    showOnboard(false);
+    note("Connected! You're all set.");
+    say("All connected. What shall we do first?");
+  } else {
+    note("That looks empty — paste the whole key, it starts with sk-or-…");
+  }
 });
 
-async function boot() {
-  await ready;
-  if (!hasKey()) log('⚠️ Paste a free OpenRouter key (openrouter.ai/keys) and click "Save key".');
-  if (MCP_URL) await connectMcp(MCP_URL);
-  log("\nType a request below. Try: \"list the files in /scratch\" first,");
-  log('then "Mount a folder" and ask it to work on your real files.\n');
+onClick("uselocal", async () => {
+  const id = inputValue("localmodel");
+  if (await loadLocalModel(id)) {
+    setLocalModel(id);
+    setProvider("local");
+    showOnboard(false);
+    say("I'm now thinking right here on your computer — no account, and nothing goes online. What shall we do first?");
+  }
+});
+
+// If they chose on-device last time, warm it up again (weights come from cache).
+if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
+  loadLocalModel(getLocalModel());
 }
 
-onClick("pick", () => mountUserFolder().catch((e) => log("⚠️ " + e.message)));
+// The ⚙ button just reopens the connection card.
+onClick("settings", () => showOnboard(true));
 
-onClick("send", () => {
-  const text = inputValue("msg");
-  if (!text.trim()) return;
-  log("\n👤 " + text);
-  runAgent(text).catch((e) => log("❌ " + e.message));
+onClick("pick", async () => {
+  try {
+    const { name, path } = await mountUserFolder();
+    await shellCd(path); // the shell now starts where the user's files are
+    showFolderChip(name);
+    note(`Now working with your “${name}” folder.`);
+  } catch (e) {
+    if ((e as Error).name !== "AbortError") error("I couldn't open that folder: " + (e as Error).message);
+  }
 });
 
+let busy = false;
+async function send() {
+  const box = document.getElementById("msg") as HTMLInputElement;
+  const text = box.value.trim();
+  if (!text || busy) return;
+  box.value = "";
+  userSay(text);
+  if (getProvider() === "local") {
+    if (!localReady()) {
+      note("My on-device brain is still warming up — give it a moment, then ask again.");
+      return;
+    }
+  } else if (!hasKey()) {
+    showOnboard(true);
+    note("First I need that free key from step 1 above — then ask me again!");
+    return;
+  }
+  busy = true;
+  status("think");
+  thinking(true);
+  try {
+    await runAgent(text);
+  } catch (e) {
+    error("Something went wrong on my side: " + (e as Error).message);
+  } finally {
+    thinking(false);
+    status("ready");
+    busy = false;
+  }
+}
+
+onClick("send", send);
 document.getElementById("msg")!.addEventListener("keydown", (e) => {
-  if ((e as KeyboardEvent).key === "Enter") (document.getElementById("send") as HTMLButtonElement).click();
+  if ((e as KeyboardEvent).key === "Enter") send();
 });
 
-boot();
+(async () => {
+  await ready;
+  status("ready");
+  if (MCP_URL) await connectMcp(MCP_URL);
+})();
+
+// Debug handle: lets devtools reach the app's live module instances.
+import { runShell } from "./shell";
+import { userMount } from "./pyenv";
+(window as any).__tabagent = { runShell, userMount };

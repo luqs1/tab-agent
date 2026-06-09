@@ -1,8 +1,13 @@
-# tab-agent
+# tab.agent
 
 An agent that runs **entirely in a browser tab — no backend.** The whole app is
 static JS/WASM; nothing runs on a server. The user brings a free OpenRouter key
 (stored in `localStorage`) and the browser calls OpenRouter directly.
+
+The UI is a warm, plain-language chat designed for **non-technical users** — no
+terminal anywhere. Code and commands run behind friendly activity lines with a
+"show the details" fold; the dot in the `tab.agent` wordmark is the status light
+(amber = thinking, green = ready).
 
 - **Model**: remote **free** models via OpenRouter (`:free`, no per-token charge), called **directly from the browser** (OpenRouter sends permissive CORS — no proxy needed)
 - **Execution**: in-tab CPython (Pyodide) + a bash-like shell (`just-bash`)
@@ -69,8 +74,8 @@ Run these in order — each proves one risky piece:
 
 1. **"print 2+2 in python"** → agent loop + Pyodide + direct OpenRouter call all work.
 2. **"list the files in /scratch"** → OPFS works.
-3. Click **Mount a folder**, then **"read every file in /mnt/user and summarize"** → the killer feature: agent on your *real* local files.
-4. **"create /mnt/user/haiku.md with a haiku about tabs"** → reload, check the file is on disk → write + `syncfs` works.
+3. Click **Share a folder**, then **"read every file in /mnt/user and summarize"** → the killer feature: agent on your *real* local files.
+4. **"create haiku.md in my folder with a haiku about tabs"** → reload, check the file is on disk → write + `syncfs` works.
 5. Set `VITE_MCP_URL` to a real server, ask something needing its tool → MCP path + the CORS reality.
 
 ## Architecture
@@ -90,10 +95,6 @@ BROWSER TAB (the entire app — no backend)
 
 ## Known sketch-stage gaps (deliberate)
 
-- **Shell and Python have separate filesystems.** `just-bash` runs on its own
-  in-memory FS; Pyodide owns `/mnt/user` + `/scratch`. To unify: implement
-  just-bash's `IFileSystem` (or use `MountableFs`) backed by the same OPFS/FSA
-  store Pyodide uses. See `src/shell.ts`.
 - **No streaming** — responses arrive in full per turn.
 - **Skills are eagerly loaded** into every prompt. Real harnesses lazy-load by
   description (progressive disclosure). See `src/skills.ts`.
@@ -101,8 +102,37 @@ BROWSER TAB (the entire app — no backend)
   a personal tool / bring-your-own-key. Each user uses their own key, so there's
   no shared rate limit and no one gets charged for anyone else.
 - **Free-model tool calling is uneven** — quality/reliability varies by model,
-  and free models get rate-limited (429) when congested. Switch models in the UI;
-  default is `z-ai/glm-4.5-air:free`.
+  and free models get rate-limited (429) when congested. The agent retries once
+  and then falls through `FALLBACK_MODELS` (src/settings.ts); default is
+  `z-ai/glm-4.5-air:free`.
 - `node:zlib` is stubbed (`src/shims/zlib.ts`); `just-bash`'s gzip commands are
   no-ops in the browser (as it documents). Wire `fflate` if you need them.
-- Firefox/Safari: OPFS works, but **Mount a folder** (FSA) does not.
+- Firefox/Safari: OPFS works, but **Share a folder** (FSA) does not.
+
+## On-device AI (no account at all)
+
+Besides OpenRouter, the onboarding card offers **"Run the AI on this computer"**:
+WebLLM (`@mlc-ai/web-llm`, loaded from CDN only when chosen) runs the model on the
+user's GPU via WebGPU, speaking the same OpenAI chat-completions format — including
+structured `tool_calls` — so the agent loop is provider-agnostic (`src/local.ts`).
+Weights download once (~4–5 GB) and are cached by the browser.
+
+Hard-won constraints (all verified live):
+
+- **Only Hermes models can do native tool calls** in WebLLM 0.2.84
+  (Hermes-2-Pro 7/8B, Hermes-3-Llama-3.1-8B). Smaller models chat but can't
+  act — they'll *claim* they wrote files. The curated list is Hermes-only.
+- **No custom system prompt with `tools`** — WebLLM injects its own Hermes-format
+  one. Our instructions are folded into the first user message instead.
+- Assistant tool-call turns must have **string content** (OpenAI sends `null`).
+- The gemma3 prebuilt record in 0.2.84 is broken (context/sliding-window clash),
+  and overriding it produces degenerate output — gemma stays off the list.
+- 8B-q4 models still misfire (bash into python_exec, repeated failing calls);
+  the loop nudges with a "you already tried exactly this" note on repeats.
+
+## Shared filesystem (shell ⇄ python)
+
+`shell` and `python_exec` see the SAME files: just-bash runs on an `IFileSystem`
+implemented over Pyodide's Emscripten FS (`src/pyfs.ts`). Both tools share
+`/scratch` (OPFS, persists across reloads) and `/mnt/user` (the user's real
+folder), and every tool run flushes writes back to disk via `syncfs`.
