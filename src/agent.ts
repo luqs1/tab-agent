@@ -130,6 +130,22 @@ async function dispatch(name: string, args: any): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Free/local models run with small context windows; one `cat` of a big file or
+// a chatty script can blow the next completion. Cap each tool result, keeping
+// the head and tail (the start sets up the result; the tail usually carries the
+// error/answer) and marking what was dropped so the model knows it's partial.
+const MAX_TOOL_CHARS = 8000;
+function clampToolOutput(out: string): string {
+  if (out.length <= MAX_TOOL_CHARS) return out;
+  const half = Math.floor(MAX_TOOL_CHARS / 2);
+  const dropped = out.length - MAX_TOOL_CHARS;
+  return (
+    out.slice(0, half) +
+    `\n\n…[${dropped} characters trimmed to fit — re-run targeting just the part you need, e.g. grep/head/tail or slice the file]…\n\n` +
+    out.slice(out.length - half)
+  );
+}
+
 // Free models get rate-limited. Try the user's model first, then fall through
 // the free fallbacks; retry each once on 429 before moving on.
 async function complete(key: string, messages: any[]): Promise<any> {
@@ -232,7 +248,7 @@ export async function runAgent(userText: string, maxTurns = 10) {
       }
       const { label, detail } = describe(name, args);
       const done = activity(label, detail);
-      let out = await dispatch(name, args);
+      let out = clampToolOutput(await dispatch(name, args));
       done();
       const sig = name + JSON.stringify(args);
       const seen = (seenCalls.get(sig) ?? 0) + 1;
