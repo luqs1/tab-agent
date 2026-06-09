@@ -180,14 +180,23 @@ function describe(name: string, args: any): { label: string; detail?: string } {
   return { label: `using ${name.replace(/^mcp__/, "")}…`, detail: JSON.stringify(args, null, 2) };
 }
 
+// The running conversation, kept across sends so the agent remembers earlier
+// turns: follow-ups ("rename that file", "what did you find?") and "keep going"
+// after a maxTurns pause all need the prior messages. Lives for the session.
+const history: any[] = [];
+
 export async function runAgent(userText: string, maxTurns = 10) {
   const key = getKey();
   if (!key && !(getProvider() === "local" && localReady())) return; // main.ts reopens onboarding
 
-  const messages: any[] = [
-    { role: "system", content: systemPrompt() },
-    { role: "user", content: userText },
-  ];
+  // Keep one running history. Refresh the system prompt each turn — the folder
+  // mount (and so the file guidance) can change between sends.
+  const sys = { role: "system", content: systemPrompt() };
+  if (history.length === 0) history.push(sys);
+  else history[0] = sys;
+  history.push({ role: "user", content: userText });
+  const messages = history;
+
   const seenCalls = new Map<string, number>(); // small local models love repeating a failing call
 
   for (let turn = 0; turn < maxTurns; turn++) {
