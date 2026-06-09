@@ -348,17 +348,29 @@
         width: min(720px, 100%);
         margin: 0 auto;
         display: flex;
+        align-items: flex-end; /* buttons stay put while the textarea grows upward */
         gap: 10px;
         background: var(--card);
         border: 1.5px solid var(--line);
-        border-radius: 999px;
+        border-radius: 26px;
         padding: 7px 7px 7px 20px;
         box-shadow: 0 6px 24px rgba(45, 42, 38, 0.09);
         transition: border-color 0.15s, box-shadow 0.15s;
       }
       .composer:focus-within { border-color: var(--accent); }
-      #msg { flex: 1; border: 0; background: none; padding: 8px 0; }
-      #msg:focus { box-shadow: none; }
+      #msg {
+        flex: 1;
+        border: 0;
+        background: none;
+        padding: 8px 0;
+        resize: none;
+        font: inherit;
+        color: inherit;
+        line-height: 1.5;
+        max-height: 40vh; /* long dictations scroll after ~a third of the screen */
+        overflow-y: auto;
+      }
+      #msg:focus { box-shadow: none; outline: none; }
 
       #mic.rec {
         background: var(--accent-soft);
@@ -468,7 +480,7 @@
 
     <footer>
       <div class="composer">
-        <input id="msg" placeholder="Ask me to help with something…" autocomplete="off" />
+        <textarea id="msg" placeholder="Ask me to help with something…" rows="1"></textarea>
         <button id="mic" class="ghost" title="Dictate — speech stays on this computer">🎤</button>
         <button id="send" class="primary">Send</button>
       </div>

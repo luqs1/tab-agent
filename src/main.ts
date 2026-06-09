@@ -26,7 +26,9 @@ const WELCOME =
 
 const connected = () => hasKey() || (getProvider() === "local" && getLocalModel() !== "");
 
-say(WELCOME);
+// A workflow link should open straight onto its consent card, not the intro.
+const WF_LINK = location.hash.startsWith("#wf=");
+if (!WF_LINK) say(WELCOME);
 if (!connected()) showOnboard(true);
 
 // The on-device option: populate the model choices; hide it without WebGPU.
@@ -100,10 +102,13 @@ onClick("pick", async () => {
 
 let busy = false;
 async function send(textOverride?: string, wf?: { title: string; body: string }) {
-  const box = document.getElementById("msg") as HTMLInputElement;
+  const box = document.getElementById("msg") as HTMLTextAreaElement;
   const text = (textOverride ?? box.value).trim();
   if (!text || busy) return;
-  if (!textOverride) box.value = "";
+  if (!textOverride) {
+    box.value = "";
+    box.style.height = "auto";
+  }
   if (wf) workflowSay(wf.title, wf.body);
   else userSay(text);
   if (getProvider() === "local") {
@@ -131,14 +136,29 @@ async function send(textOverride?: string, wf?: { title: string; body: string })
 }
 
 onClick("send", () => send());
-document.getElementById("msg")!.addEventListener("keydown", (e) => {
-  if ((e as KeyboardEvent).key === "Enter") send();
+
+// The composer grows upward as the message gets longer (capped in CSS);
+// Enter sends, Shift+Enter makes a new line.
+const msgBox = document.getElementById("msg") as HTMLTextAreaElement;
+function autoGrow() {
+  msgBox.style.height = "auto";
+  msgBox.style.height = msgBox.scrollHeight + "px";
+}
+msgBox.addEventListener("input", autoGrow);
+msgBox.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
 });
 
 // ---- workflows in the URL fragment (#wf=…) — consent card, never auto-run ----
 (async () => {
-  const wf = await decodeWorkflowHash(location.hash).catch(() => null);
-  if (!wf) return;
+  const wf = WF_LINK ? await decodeWorkflowHash(location.hash).catch(() => null) : null;
+  if (!wf) {
+    if (WF_LINK) say(WELCOME); // malformed link — fall back to the normal intro
+    return;
+  }
   const card = document.getElementById("wfcard") as HTMLElement;
   if (wf.title) document.getElementById("wf-title")!.textContent = `This link asks me to: ${wf.title}`;
   document.getElementById("wf-body")!.textContent = wf.instructions;
@@ -162,6 +182,7 @@ document.getElementById("msg")!.addEventListener("keydown", (e) => {
   onClick("wf-skip", () => {
     close();
     note("Okay, ignored. The link's instructions are gone.");
+    say(WELCOME);
   });
   onClick("wf-run", () => {
     const values: Record<string, string> = {};
@@ -192,13 +213,22 @@ document.getElementById("msg")!.addEventListener("keydown", (e) => {
   let switching = false; // ignore clicks while loading the model / opening the mic
   onClick("mic", async () => {
     if (switching) return;
-    const box = document.getElementById("msg") as HTMLInputElement;
+    const box = document.getElementById("msg") as HTMLTextAreaElement;
     if (dictating()) {
+      switching = true;
       micBtn.classList.remove("rec");
-      micBtn.textContent = "🎤";
-      const final = await stopDictation();
-      if (final) box.value = baseText + final;
-      box.focus();
+      micBtn.textContent = "…";
+      try {
+        const final = await stopDictation();
+        if (final) {
+          box.value = baseText + final;
+          autoGrow();
+        }
+        box.focus();
+      } finally {
+        micBtn.textContent = "🎤";
+        switching = false;
+      }
       return;
     }
     switching = true;
@@ -219,12 +249,10 @@ document.getElementById("msg")!.addEventListener("keydown", (e) => {
         }
       }
       baseText = box.value ? box.value.replace(/\s+$/, "") + " " : "";
-      await startDictation((text) => {
-        box.value = baseText + text;
-      });
+      await startDictation();
       micBtn.classList.add("rec");
       micBtn.textContent = "⏹";
-      note("Listening… click ⏹ when you're done — then edit the text however you like.");
+      note("Listening… click ⏹ when you're done and I'll write it all out.");
     } catch (e) {
       error("I couldn't use the microphone: " + (e as Error).message);
     } finally {
