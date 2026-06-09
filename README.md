@@ -1,22 +1,32 @@
 # tab.agent
 
+**Live: https://luqs1.github.io/tab-agent/**
+
 An agent that runs **entirely in a browser tab — no backend.** The whole app is
-static JS/WASM; nothing runs on a server. The user brings a free OpenRouter key
-(stored in `localStorage`) and the browser calls OpenRouter directly.
+static JS/WASM; nothing runs on a server. Bring a free OpenRouter key (stored in
+`localStorage`, sent only to OpenRouter) — or run the model on your own GPU and
+go nowhere at all.
 
 The UI is a warm, plain-language chat designed for **non-technical users** — no
 terminal anywhere. Code and commands run behind friendly activity lines with a
 "show the details" fold; the dot in the `tab.agent` wordmark is the status light
 (amber = thinking, green = ready).
 
-- **Model**: remote **free** models via OpenRouter (`:free`, no per-token charge), called **directly from the browser** (OpenRouter sends permissive CORS — no proxy needed)
-- **Execution**: in-tab CPython (Pyodide) + a bash-like shell (`just-bash`)
-- **Files**: the user's *real* folder via the File System Access API, mounted into Pyodide; OPFS as a fast scratch dir
+- **Model**: remote **free** models via OpenRouter (`:free`, called directly from
+  the browser — permissive CORS, no proxy), or fully **on-device** via WebLLM
+  (Hermes 7/8B on WebGPU, no account)
+- **Execution**: in-tab CPython (Pyodide) + a bash-like shell (`just-bash`),
+  sharing one filesystem
+- **Files**: the user's *real* folder via the File System Access API, mounted
+  into Pyodide; OPFS as a persistent scratch dir
+- **Voice**: local dictation via Parakeet TDT 0.6B v3 (onnxruntime-web)
+- **Sharing**: workflows ride in the URL fragment (`#wf=…`, never sent to any
+  server); the app downloads itself as a single file
 - **Tools**: remote MCP servers over Streamable HTTP
 - **Skills**: markdown under `skills/` injected into the prompt
 
-This is a **de-risking sketch**: the goal is to prove the hard integrations work
-end-to-end, not to be a finished product.
+Started as a de-risking sketch; the hard integrations are now all verified
+working end-to-end in real browsers.
 
 ## No backend — really
 
@@ -27,13 +37,17 @@ browser except in the direct request to OpenRouter.
 
 ## Run it
 
+The hosted copy at https://luqs1.github.io/tab-agent/ deploys automatically from
+`main` (GitHub Actions → Pages). For development:
+
 ```bash
 bun install
 bun run dev          # -> http://localhost:5173  (Vite dev server = hot-reload, still no app backend)
 ```
 
-Open in **Chrome or Edge**, paste a free key from https://openrouter.ai/keys into
-the **OpenRouter key** field, click **Save key**, and go.
+Open in **Chrome or Edge**. The onboarding card offers two brains: connect a
+free key from https://openrouter.ai/keys (option 1), or download an on-device
+model (option 2, WebGPU).
 
 ### Ship it as one file
 
@@ -54,6 +68,9 @@ folder sharing (FSA is available on `file://`), shell, python — works. For
 persistent scratch, serve it over any static HTTP instead
 (`python3 -m http.server -d dist`).
 
+A downloaded copy is frozen at its build, so on `file://` the footer line
+becomes a link back to the hosted URL for the latest version.
+
 ## Workflows in a link
 
 Instructions (an install.md, a repeatable chore) can ride inside the URL
@@ -64,6 +81,10 @@ hosted copy can't see it — and the same link works on a `file://` copy.
 - `{{name}}` placeholders become input fields the recipient fills in.
 - **Nothing auto-runs.** A consent card shows the exact instructions with a
   Run / No thanks choice; the hash is scrubbed after handling.
+- Shared workflows look like what they are — third-party content: the consent
+  card carries a "SHARED WITH YOU" badge and ink frame, and a run shows up in
+  chat as a dashed "Running shared workflow" bubble with foldable steps, not as
+  the user's own words. Workflow links skip the welcome intro.
 - Ask the agent to "turn this into a shareable link" — the `make_workflow_link`
   tool mints one (the sample skill compresses to ~250 URL chars; ~10k chars,
   i.e. ~15–25 KB of markdown, stays shareable in every chat app).
@@ -101,14 +122,17 @@ Run these in order — each proves one risky piece:
 ```
 BROWSER TAB (the entire app — no backend)
   Chat UI ─► Agent loop (src/agent.ts)
-               ├─ LLM ──► fetch() ──► OpenRouter (free models, direct, CORS-ok)
-               │           key from localStorage (src/settings.ts)
+               ├─ LLM ─► OpenRouter (fetch, free models, CORS-ok; src/settings.ts)
+               │     └─ or on-device: WebLLM / Hermes on WebGPU (src/local.ts)
                └─ tools
                     ├─ python_exec ─► Pyodide (src/pyenv.ts)
-                    │     /mnt/user ◄─ your real folder (FSA, async, Chromium)
-                    │     /scratch  ◄─ OPFS (sync, all browsers)
-                    ├─ shell ──────► just-bash (src/shell.ts)
+                    │     /mnt/user ◄─ your real folder (FSA, Chromium)
+                    │     /scratch  ◄─ OPFS (in-memory on file://)
+                    ├─ shell ──────► just-bash on Pyodide's FS (src/shell.ts, src/pyfs.ts)
+                    ├─ make_workflow_link ─► #wf= links (src/wf.ts)
+                    ├─ write_installer ───► click-to-run .zip (src/installer.ts)
                     └─ mcp__* ─────► remote MCP (src/mcp.ts)
+  🎤 dictation ─► Parakeet TDT v3 via onnxruntime-web (src/asr.ts)
 ```
 
 ## Known sketch-stage gaps (deliberate)
@@ -125,7 +149,9 @@ BROWSER TAB (the entire app — no backend)
   `z-ai/glm-4.5-air:free`.
 - `node:zlib` is stubbed (`src/shims/zlib.ts`); `just-bash`'s gzip commands are
   no-ops in the browser (as it documents). Wire `fflate` if you need them.
-- Firefox/Safari: OPFS works, but **Share a folder** (FSA) does not.
+- Firefox/Safari: OPFS works, but **Share a folder** (FSA) does not — the app
+  explains this kindly and dims the button. On-device AI and dictation also
+  want a Chromium-class browser (WebGPU / wasm performance).
 
 ## On-device AI (no account at all)
 
@@ -153,13 +179,16 @@ Hard-won constraints (all verified live):
 The 🎤 button in the composer runs **NVIDIA Parakeet TDT 0.6B v3** in the tab
 via [parakeet.js](https://www.npmjs.com/package/parakeet.js) (onnxruntime-web),
 loaded from CDN only on first use after an explicit size warning (~620 MB int8,
-one time). Audio never leaves the machine. While you talk, the whole take is
-transcribed into the textbox whenever you pause speaking (simple energy-based
-voice detection — decoding continuously lagged on wasm), editable before Send;
-stopping does a final full-context pass. Verified live: the wasm-int8 path
-decodes ~realtime; the fp16 WebGPU encoder fails ort-web session creation
-(std::bad_alloc), and chunked streaming degenerates on this model — hence
-whole-take decoding.
+one time). Audio never leaves the machine. Recording is **single-shot**: talk
+as long as you like (zero decode lag), click ⏹, and the whole take is
+transcribed once into the textbox — which grows upward for review and editing
+before Send.
+
+Why no live streaming (all tried, user-tested, rejected): continuous whole-take
+re-decoding lags hopelessly on single-threaded wasm; pause-gated decoding still
+felt laggy; the fp16 WebGPU encoder fails ort-web session creation
+(std::bad_alloc); and chunked StatefulStreamingTranscriber degenerates to "."
+after one chunk on this model (disjoint chunks lose conformer context).
 
 ## Shared filesystem (shell ⇄ python)
 
