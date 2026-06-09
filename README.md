@@ -2,12 +2,13 @@
 
 Live: https://luqs1.github.io/tab-agent/
 
-An agent that runs entirely in a browser tab. No backend — the whole app is
-static JS/WASM. Bring a free OpenRouter key (stored in `localStorage`, sent
-only to OpenRouter), or run the model on your own GPU.
+It's just a html file.
 
-The UI is a plain-language chat aimed at non-technical users. Code and commands
-run behind activity lines with a "show the details" fold; the dot in the
+An agent that executes locally in a browser tab, removing the install friction. No backend, the app is
+static JS/WASM. Bring a free OpenRouter key (stored in `localStorage`, sent
+only to OpenRouter), or run the model on-device.
+
+The UI is plain-language chat aimed at non-technical users. The dot in the
 wordmark is the status light (amber = thinking, green = ready).
 
 - **Model**: free OpenRouter models, called directly from the browser (CORS-ok,
@@ -72,20 +73,6 @@ a `file://` copy.
 - The `make_workflow_link` tool mints links. The sample skill compresses to
   ~250 URL chars; ~10k chars (≈15–25 KB of markdown) stays shareable in chat apps.
 
-## System actions: the click-to-run installer
-
-The sandbox can't install software or run native binaries. When a task needs
-that, the agent calls `write_installer`, which downloads a click-only installer:
-
-1. A `.zip` containing `setup.command` with mode `0755` (`src/zip.ts`). The
-   browser can't set an executable bit, but a zip stores the Unix mode and
-   macOS restores it on unzip — no terminal, no chmod.
-2. Double-click the zip, double-click `setup.command`.
-3. macOS shows an unidentified-developer prompt; right-click → Open is the
-   authorization step. Notarizing would remove it.
-
-A persistent signed companion app (live system access without per-task files)
-is the heavier future option — see issue #2.
 
 ## The validation gauntlet
 
