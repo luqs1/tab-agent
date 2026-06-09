@@ -57,14 +57,14 @@ export async function decodeWorkflowHash(hash: string): Promise<Workflow | null>
 /** Unique {{placeholder}} names, in order of first appearance. */
 export function workflowParams(instructions: string): string[] {
   const out: string[] = [];
-  for (const m of instructions.matchAll(/\{\{\s*([\w][\w .-]*?)\s*\}\}/g))
+  for (const m of instructions.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g))
     if (!out.includes(m[1])) out.push(m[1]);
   return out;
 }
 
 /** Substitute {{name}} placeholders with the given values. */
 export function fillParams(instructions: string, values: Record<string, string>): string {
-  return instructions.replace(/\{\{\s*([\w][\w .-]*?)\s*\}\}/g, (whole, name) =>
+  return instructions.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (whole, name) =>
     name in values ? values[name] : whole
   );
 }
