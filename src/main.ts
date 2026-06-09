@@ -6,7 +6,10 @@ import {
 import { asrSupported, asrReady, loadAsr, startDictation, stopDictation, dictating } from "./asr";
 import { ready, mountUserFolder, scratchPersists } from "./pyenv";
 import { shellCd } from "./shell";
-import { decodeWorkflowHash, workflowParams, fillParams } from "./wf";
+import {
+  decodeWorkflowHash, workflowParams, fillParams,
+  rememberWorkflow, recentWorkflows, type Workflow,
+} from "./wf";
 import { connectMcp, disconnectMcp } from "./mcp";
 import { runAgent } from "./agent";
 import {
@@ -169,19 +172,24 @@ msgBox.addEventListener("keydown", (e) => {
   }
 });
 
-// ---- workflows in the URL fragment (#wf=…) — consent card, never auto-run ----
-(async () => {
-  const wf = WF_LINK ? await decodeWorkflowHash(location.hash).catch(() => null) : null;
-  if (!wf) {
-    if (WF_LINK) say(WELCOME); // malformed link — fall back to the normal intro
-    return;
-  }
-  const card = document.getElementById("wfcard") as HTMLElement;
-  if (wf.title) document.getElementById("wf-title")!.textContent = `This link asks me to: ${wf.title}`;
+// ---- workflows: consent card (from a link or from the recents list) ----
+let activeWf: Workflow | null = null;
+let wfFromLink = false;
+const wfCard = document.getElementById("wfcard") as HTMLElement;
+const wfParamsEl = document.getElementById("wf-params")!;
+
+function offerWorkflow(wf: Workflow, fromLink: boolean) {
+  activeWf = wf;
+  wfFromLink = fromLink;
+  document.getElementById("wf-title")!.textContent = wf.title
+    ? (fromLink ? `This link asks me to: ${wf.title}` : `Run again: ${wf.title}`)
+    : "These instructions were shared with me";
+  document.getElementById("wf-intro")!.textContent = fromLink
+    ? "Someone packed a task into this link. Here's exactly what they're asking me to do — I won't start until you say so, and you should only run it if you trust the sender."
+    : "You've run this before. Here's exactly what it does — nothing starts until you click Run.";
   document.getElementById("wf-body")!.textContent = wf.instructions;
-  const names = workflowParams(wf.instructions);
-  const paramsEl = document.getElementById("wf-params")!;
-  for (const name of names) {
+  wfParamsEl.innerHTML = "";
+  for (const name of workflowParams(wf.instructions)) {
     const row = document.createElement("div");
     row.className = "step";
     row.innerHTML = `<span class="chip">${name}</span>`;
@@ -190,35 +198,73 @@ msgBox.addEventListener("keydown", (e) => {
     input.placeholder = name;
     input.style.flex = "1";
     row.appendChild(input);
-    paramsEl.appendChild(row);
+    wfParamsEl.appendChild(row);
   }
-  const close = () => {
-    card.hidden = true;
-    history.replaceState(null, "", location.pathname + location.search);
-  };
-  onClick("wf-skip", () => {
-    close();
-    note("Okay, ignored. The link's instructions are gone.");
-    say(WELCOME);
-  });
-  onClick("wf-run", () => {
-    const values: Record<string, string> = {};
-    for (const input of paramsEl.querySelectorAll("input")) {
-      if (!input.value.trim()) {
-        input.focus();
-        note("Fill in the blanks above first, then hit Run.");
-        return;
-      }
-      values[input.dataset.param!] = input.value.trim();
+  document.getElementById("chat")!.appendChild(wfCard); // keep it in conversation flow
+  wfCard.hidden = false;
+  wfCard.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+const closeWf = () => {
+  wfCard.hidden = true;
+  history.replaceState(null, "", location.pathname + location.search);
+};
+
+onClick("wf-skip", () => {
+  const fromLink = wfFromLink;
+  closeWf();
+  note("Okay, ignored.");
+  if (fromLink) say(WELCOME);
+});
+
+onClick("wf-run", () => {
+  if (!activeWf) return;
+  const values: Record<string, string> = {};
+  for (const input of wfParamsEl.querySelectorAll("input")) {
+    if (!input.value.trim()) {
+      input.focus();
+      note("Fill in the blanks above first, then hit Run.");
+      return;
     }
-    close();
-    const filled = fillParams(wf.instructions, values);
-    send("Please carry out these instructions now:\n\n" + filled, {
-      title: wf.title ?? "from a link",
-      body: filled,
-    });
+    values[input.dataset.param!] = input.value.trim();
+  }
+  closeWf();
+  rememberWorkflow(activeWf);
+  renderRecents();
+  const filled = fillParams(activeWf.instructions, values);
+  send("Please carry out these instructions now:\n\n" + filled, {
+    title: activeWf.title ?? "from a link",
+    body: filled,
   });
-  card.hidden = false;
+});
+
+// The last few workflows the user ran, re-offerable from the ⚙ card.
+function renderRecents() {
+  const recents = recentWorkflows();
+  (document.getElementById("recent-section") as HTMLElement).hidden = recents.length === 0;
+  const holder = document.getElementById("recent-wfs")!;
+  holder.innerHTML = "";
+  for (const wf of recents) {
+    const b = document.createElement("button");
+    b.className = "ghost";
+    b.textContent = "📦 " + wf.title;
+    b.addEventListener("click", () => {
+      showOnboard(false);
+      offerWorkflow(wf, false);
+    });
+    holder.appendChild(b);
+  }
+}
+renderRecents();
+
+// A workflow arriving in the URL fragment — never auto-run.
+(async () => {
+  const wf = WF_LINK ? await decodeWorkflowHash(location.hash).catch(() => null) : null;
+  if (!wf) {
+    if (WF_LINK) say(WELCOME); // malformed link — fall back to the normal intro
+    return;
+  }
+  offerWorkflow(wf, true);
 })();
 
 // ---- dictation: local Parakeet ASR streaming into the textbox ----
@@ -313,6 +359,29 @@ if (location.protocol === "file:") {
   const mcp = getMcpUrl() || MCP_URL;
   if (mcp) await connectMcp(mcp);
 })();
+
+// ---- update check: compare our build id against the freshly served page ----
+// Long-lived tabs miss deploys (bit us in practice: a stale tab kept failing
+// on a withdrawn model). When the server's build differs, the ⟳ next to the
+// version starts breathing; clicking it reloads.
+{
+  const ownBuild = (document.querySelector('meta[name="ta-build"]') as HTMLMetaElement)?.content;
+  const updBtn = document.getElementById("update") as HTMLButtonElement;
+  updBtn.addEventListener("click", () => location.reload());
+  async function checkForUpdate() {
+    if (location.protocol === "file:" || !ownBuild || ownBuild.includes("%")) return;
+    try {
+      const html = await fetch(location.pathname, { cache: "no-store" }).then((r) => r.text());
+      const served = html.match(/name="ta-build" content="([^"]+)"/)?.[1];
+      if (served && served !== ownBuild) updBtn.hidden = false;
+    } catch {}
+  }
+  setTimeout(checkForUpdate, 15_000);
+  setInterval(checkForUpdate, 15 * 60_000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkForUpdate();
+  });
+}
 
 // Debug handle: lets devtools reach the app's live module instances.
 import { runShell } from "./shell";

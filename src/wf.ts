@@ -54,6 +54,26 @@ export async function decodeWorkflowHash(hash: string): Promise<Workflow | null>
   }
 }
 
+// ---- recent workflows: the last few the user actually ran, so they can be
+// found and re-run later (still via the consent card). localStorage rather
+// than sessionStorage so they survive closing the tab.
+const RECENT = "tab-agent.recent_workflows";
+const RECENT_MAX = 5;
+
+export function rememberWorkflow(wf: Workflow) {
+  const list = recentWorkflows().filter((w) => w.instructions !== wf.instructions);
+  list.unshift({ title: wf.title ?? "Untitled workflow", instructions: wf.instructions });
+  localStorage.setItem(RECENT, JSON.stringify(list.slice(0, RECENT_MAX)));
+}
+
+export function recentWorkflows(): { title: string; instructions: string }[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
 /** Unique {{placeholder}} names, in order of first appearance. */
 export function workflowParams(instructions: string): string[] {
   const out: string[] = [];

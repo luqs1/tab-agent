@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="ta-build" content="%TA_BUILD%" />
     <title>tab.agent — a helper that lives in your browser</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -412,6 +413,19 @@
       .msg.wfmsg summary { cursor: pointer; font-size: 13.5px; color: var(--accent-deep); }
       .msg.wfmsg pre { background: rgba(255, 255, 255, 0.65); margin: 8px 0 0; }
 
+      .ver { margin-left: 8px; opacity: 0.8; white-space: nowrap; }
+      .ver #update {
+        background: none;
+        border: 0;
+        padding: 0 2px;
+        margin-left: 3px;
+        color: var(--accent-deep);
+        font-size: 14px;
+        cursor: pointer;
+        animation: updpulse 1.6s ease-in-out infinite;
+      }
+      @keyframes updpulse { 50% { opacity: 0.35; } }
+
       .fineprint {
         width: min(720px, 100%);
         margin: 8px auto 0;
@@ -470,7 +484,7 @@
       <section id="wfcard" class="card" hidden>
         <span class="wf-badge">📦 Shared with you</span>
         <h2 id="wf-title">This link came with instructions</h2>
-        <p>Someone packed a task into this link. Here's <em>exactly</em> what they're asking me to do —
+        <p id="wf-intro">Someone packed a task into this link. Here's <em>exactly</em> what they're asking me to do —
         I won't start until you say so, and you should only run it if you trust the sender.</p>
         <pre id="wf-body" style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f4efe5;border-radius:10px;padding:12px;max-height:260px;overflow:auto;white-space:pre-wrap"></pre>
         <div id="wf-params"></div>
@@ -516,6 +530,10 @@
           <input id="mcpurl" placeholder="https://your-server.example.com/mcp" style="flex:1;min-width:200px" />
           <button id="savemcp" class="ghost">Connect tools</button>
         </div>
+        <div id="recent-section" hidden>
+          <div class="divider"><span>recent workflows</span></div>
+          <div id="recent-wfs" class="step"></div>
+        </div>
       </section>
     </main>
 
@@ -528,6 +546,7 @@
       <p class="fineprint">
         Your files live on your computer and I work on them right here in this tab.
         <a id="savecopy" href="#" style="color:inherit">Save a copy of me</a><span id="savecopy-tail"> — I'm a single file.</span>
+        <span class="ver">v%TA_VERSION%<button id="update" hidden title="A newer version is available — click to update">⟳</button></span>
       </p>
     </footer>
 
