@@ -262,21 +262,31 @@ msgBox.addEventListener("keydown", (e) => {
 }
 
 // ---- save-a-copy: the whole app is one file, so it can hand itself out ----
-onClick("savecopy", async () => {
-  try {
-    const html = await fetch(location.href).then((r) => r.text());
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-    a.download = "tab.agent.html";
-    a.click();
-    URL.revokeObjectURL(a.href);
-    note("Saved! Anyone can double-click that file to get their own tab.agent.");
-  } catch {
-    note("Couldn't grab my own file here — if you're already running from a file, just share that file itself.");
-  }
-});
-if (location.protocol === "file:")
-  (document.getElementById("savecopy") as HTMLElement).hidden = true;
+// A downloaded copy is frozen at whatever build it was saved from, so on
+// file:// the footer points home for the freshest version instead.
+const HOME_URL = "https://luqs1.github.io/tab-agent/";
+if (location.protocol === "file:") {
+  const a = document.getElementById("savecopy") as HTMLAnchorElement;
+  a.textContent = "Go to " + HOME_URL.replace(/^https:\/\//, "").replace(/\/$/, "");
+  a.href = HOME_URL;
+  a.target = "_blank";
+  a.rel = "noreferrer";
+  document.getElementById("savecopy-tail")!.textContent = " for the most up-to-date version of me.";
+} else {
+  onClick("savecopy", async () => {
+    try {
+      const html = await fetch(location.href).then((r) => r.text());
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      a.download = "tab.agent.html";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      note("Saved! Anyone can double-click that file to get their own tab.agent.");
+    } catch {
+      note("Couldn't grab my own file here — you can share this page's link instead.");
+    }
+  });
+}
 
 (async () => {
   await ready;
