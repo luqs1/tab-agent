@@ -3,14 +3,17 @@
 const KEY = "tab-agent.openrouter_key";
 const MODEL = "tab-agent.model";
 
-const DEFAULT_MODEL = "z-ai/glm-4.5-air:free";
+const DEFAULT_MODEL = "moonshotai/kimi-k2.6:free";
 
-// Free models with working tool-calling, in preference order. When the active
-// model is rate-limited (free tiers often are), the agent falls through these.
+// Free models with tool-calling support, in preference order (checked against
+// openrouter.ai/api/v1/models — supported_parameters includes "tools"). The
+// free tier shifts under us: models get rate-limited or withdrawn, so the
+// agent falls through this list on any non-auth error.
 export const FALLBACK_MODELS = [
-  "z-ai/glm-4.5-air:free",
+  "moonshotai/kimi-k2.6:free",
   "qwen/qwen3-coder:free",
-  "mistralai/mistral-small-3.2-24b-instruct:free",
+  "openai/gpt-oss-120b:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
 ];
 
 export const getKey = () => localStorage.getItem(KEY) ?? "";
@@ -31,3 +34,8 @@ export const setProvider = (p: Provider) => localStorage.setItem(PROVIDER, p);
 
 export const getLocalModel = () => localStorage.getItem(LOCAL_MODEL) ?? "";
 export const setLocalModel = (m: string) => localStorage.setItem(LOCAL_MODEL, m);
+
+// Optional remote MCP server (Streamable HTTP, must be CORS-friendly).
+const MCP = "tab-agent.mcp_url";
+export const getMcpUrl = () => localStorage.getItem(MCP) ?? "";
+export const setMcpUrl = (u: string) => localStorage.setItem(MCP, u.trim());

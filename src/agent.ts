@@ -157,16 +157,15 @@ async function complete(key: string, messages: any[]): Promise<any> {
       if (!resp.error) return resp;
       last = resp;
       if (code === 401 || code === 403) return resp; // bad key — retrying won't help
-      if (code === 429 || code >= 500) {
-        if (attempt === 0) {
-          note("It's a little busy right now — giving it another try…");
-          await sleep(2500);
-          continue;
-        }
-        note("Still busy — switching to a backup brain…");
-        break; // next model
+      if ((code === 429 || code >= 500) && attempt === 0) {
+        note("It's a little busy right now — giving it another try…");
+        await sleep(2500);
+        continue;
       }
-      return resp; // non-retryable error
+      // Anything else — model withdrawn, 404, repeated 429 — try the next model.
+      // The free tier shifts constantly; a dead default mustn't kill the agent.
+      note("That model isn't answering — switching to a backup brain…");
+      break;
     }
   }
   return last;

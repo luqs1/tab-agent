@@ -7,11 +7,16 @@ import { asrSupported, asrReady, loadAsr, startDictation, stopDictation, dictati
 import { ready, mountUserFolder, scratchPersists } from "./pyenv";
 import { shellCd } from "./shell";
 import { decodeWorkflowHash, workflowParams, fillParams } from "./wf";
-import { connectMcp } from "./mcp";
+import { connectMcp, disconnectMcp } from "./mcp";
 import { runAgent } from "./agent";
 import {
   setKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
+  getMcpUrl, setMcpUrl, getModel, setModel, FALLBACK_MODELS,
 } from "./settings";
+
+// The free tier shifts: a saved model that's left our known-good list would
+// burn a failed call every turn, so drop it back to the default.
+if (!FALLBACK_MODELS.includes(getModel())) setModel("");
 import { LOCAL_MODELS, loadLocalModel, localReady, gpuAvailable } from "./local";
 
 // Point this at any browser-CORS-friendly MCP server.
@@ -76,6 +81,19 @@ if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
 
 // The ⚙ button just reopens the connection card.
 onClick("settings", () => showOnboard(true));
+
+// Optional MCP tool server: runtime-configurable, persisted, reconnects at boot.
+(document.getElementById("mcpurl") as HTMLInputElement).value = getMcpUrl();
+onClick("savemcp", async () => {
+  const url = inputValue("mcpurl").trim();
+  setMcpUrl(url);
+  if (!url) {
+    await disconnectMcp();
+    note("Tool server removed.");
+    return;
+  }
+  await connectMcp(url);
+});
 
 // Folder sharing needs the File System Access API — Chrome/Edge only.
 const FSA_OK = "showDirectoryPicker" in window;
@@ -292,7 +310,8 @@ if (location.protocol === "file:") {
   status("ready");
   if (!scratchPersists)
     note("Heads up: running from a local file, so my scratch notes vanish on reload. Your real folder is unaffected.");
-  if (MCP_URL) await connectMcp(MCP_URL);
+  const mcp = getMcpUrl() || MCP_URL;
+  if (mcp) await connectMcp(mcp);
 })();
 
 // Debug handle: lets devtools reach the app's live module instances.

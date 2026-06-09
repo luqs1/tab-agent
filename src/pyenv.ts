@@ -22,6 +22,7 @@ let captured = "";
 export let scratchPersists = true;
 
 export const ready = (async () => {
+  if ((window as any).__MOBILE__) return; // splash is up; skip the big downloads
   pyodide = await loadPyodide();
   pyodide.setStdout({ batched: (s: string) => (captured += s + "\n") });
   pyodide.setStderr({ batched: (s: string) => (captured += s + "\n") });

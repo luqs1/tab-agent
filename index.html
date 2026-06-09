@@ -422,8 +422,42 @@
     </style>
     <!-- Pyodide from CDN: avoids bundling ~10MB of wasm during the sketch phase. -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js"></script>
+    <script>
+      // Phones get a splash instead of a broken app (and skip the big wasm
+      // downloads). Coarse pointer + small screen ≈ phone; iPads pass.
+      window.__MOBILE__ =
+        matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 600;
+      if (window.__MOBILE__) document.documentElement.classList.add("mobile");
+    </script>
+    <style>
+      #splash { display: none; }
+      .mobile #splash {
+        display: flex;
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        background:
+          radial-gradient(rgba(45, 42, 38, 0.045) 1px, transparent 1px) 0 0 / 22px 22px,
+          var(--paper);
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        padding: 32px;
+        text-align: center;
+      }
+      #splash .wordmark { font-size: 34px; }
+      #splash p { max-width: 420px; margin: 0; color: #5d574d; }
+      #splash .small { font-size: 13.5px; color: #b3aa9b; }
+    </style>
   </head>
   <body>
+    <div id="splash">
+      <div class="wordmark">tab<span class="dot ready" style="width:11px;height:11px"></span>agent</div>
+      <p><strong>This page only works on a desktop browser, for now…</strong></p>
+      <p>Open it on a computer in Chrome or Edge — that's where I can actually work with your files.</p>
+      <p class="small">luqs1.github.io/tab-agent</p>
+    </div>
     <header>
       <div class="wordmark">tab<span id="dot" class="dot boot"></span>agent</div>
       <span class="spacer"></span>
@@ -474,6 +508,13 @@
             <select id="localmodel"></select>
             <button id="uselocal" class="primary">Use on-device AI</button>
           </div>
+        </div>
+        <div class="divider"><span>extra tools (optional)</span></div>
+        <p style="font-size:14px">Connect an MCP tool server to give me more abilities — it must speak
+        Streamable HTTP and allow browser connections (CORS).</p>
+        <div class="step">
+          <input id="mcpurl" placeholder="https://your-server.example.com/mcp" style="flex:1;min-width:200px" />
+          <button id="savemcp" class="ghost">Connect tools</button>
         </div>
       </section>
     </main>
