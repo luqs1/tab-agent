@@ -250,10 +250,14 @@ export async function runAgent(userText: string, maxTurns = 10) {
     for (const call of calls) {
       const name = call.function.name;
       let args: any = {};
+      let badArgs: string | null = null;
       try {
         args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
       } catch {
-        args = {};
+        // Don't silently run with {} — that hides the real problem (e.g.
+        // runPython(undefined)). Tell the model its arguments didn't parse so
+        // it can resend them; small local models especially need this nudge.
+        badArgs = call.function.arguments ?? "";
       }
       const { label, detail } = describe(name, args);
       const done = activity(label, detail);
@@ -261,10 +265,14 @@ export async function runAgent(userText: string, maxTurns = 10) {
       // the error into a tool result the model can react to, and always clear
       // the spinner. Then cap the result to protect the context window.
       let out: string;
-      try {
-        out = await dispatch(name, args);
-      } catch (e) {
-        out = `[tool error] ${(e as Error).message ?? String(e)}`;
+      if (badArgs !== null) {
+        out = `[bad arguments] The arguments for ${name} were not valid JSON, so the call didn't run. You sent: ${badArgs}\nResend the call with valid JSON arguments.`;
+      } else {
+        try {
+          out = await dispatch(name, args);
+        } catch (e) {
+          out = `[tool error] ${(e as Error).message ?? String(e)}`;
+        }
       }
       out = clampToolOutput(out);
       done();
