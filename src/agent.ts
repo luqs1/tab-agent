@@ -10,6 +10,7 @@ import { loadSkills } from "./skills";
 import { getKey, getModel, getProvider, FALLBACK_MODELS } from "./settings";
 import { localComplete, localReady } from "./local";
 import { writeInstaller } from "./installer";
+import { encodeWorkflowLink } from "./wf";
 
 // The key comes from localStorage (see settings.ts).
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -69,6 +70,22 @@ function builtinTools() {
     {
       type: "function",
       function: {
+        name: "make_workflow_link",
+        description:
+          "Pack instructions (e.g. an install.md or a repeatable chore) into a shareable tab.agent link. Anyone opening the link sees the instructions and can run them in their own tab.agent after confirming. Use {{name}} placeholders for values the recipient should fill in.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "short human title, e.g. \"Set up Claude Code\"" },
+            instructions: { type: "string", description: "the full instructions, markdown welcome" },
+          },
+          required: ["instructions"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
         name: "write_installer",
         description:
           "Generate a script the user runs once to perform actions the sandbox can't (install software, run native tools). Downloads a click-to-run .zip (double-click zip → double-click setup.command, no terminal typing) and explains the clicks.",
@@ -102,6 +119,10 @@ function allTools() {
 async function dispatch(name: string, args: any): Promise<string> {
   if (name === "python_exec") return runPython(args.code);
   if (name === "shell") return runShell(args.command);
+  if (name === "make_workflow_link") {
+    const url = await encodeWorkflowLink({ title: args.title, instructions: args.instructions });
+    return `Link created (${url.length} chars — fragment stays on-device, never sent to any server):\n${url}\nShow it to the user as a markdown link they can copy.`;
+  }
   if (name === "write_installer") return writeInstaller(args.name, args.script);
   if (name.startsWith("mcp__")) return callMcp(name.slice(5), args);
   return `unknown tool: ${name}`;
@@ -156,6 +177,7 @@ function describe(name: string, args: any): { label: string; detail?: string } {
   if (name === "python_exec") return { label: "doing a bit of work behind the scenes…", detail: args.code };
   if (name === "shell") return { label: "looking through the files…", detail: args.command };
   if (name === "write_installer") return { label: "preparing a one-click setup file for you…", detail: args.script };
+  if (name === "make_workflow_link") return { label: "packing that into a shareable link…", detail: args.instructions };
   return { label: `using ${name.replace(/^mcp__/, "")}…`, detail: JSON.stringify(args, null, 2) };
 }
 

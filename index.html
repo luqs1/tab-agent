@@ -381,24 +381,24 @@
     </header>
 
     <main id="chat">
+      <section id="wfcard" class="card" hidden>
+        <h2 id="wf-title">This link came with instructions</h2>
+        <p>Someone packed a task into this link. Here's <em>exactly</em> what they're asking me to do —
+        I won't start until you say so, and you should only run it if you trust the sender.</p>
+        <pre id="wf-body" style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f4efe5;border-radius:10px;padding:12px;max-height:260px;overflow:auto;white-space:pre-wrap"></pre>
+        <div id="wf-params"></div>
+        <div class="step">
+          <button id="wf-run" class="primary">Run it</button>
+          <button id="wf-skip" class="ghost">No thanks</button>
+        </div>
+      </section>
       <section id="onboard" class="card" hidden>
         <h2>One quick thing before we start</h2>
         <p>I need a model to think with — pick whichever suits you:</p>
-        <div id="local-section">
-          <p style="margin-top:14px"><strong>Run the AI on this computer — no account, totally private.</strong>
-          It downloads once (4 to 5 GB), then thinks entirely on your machine: nothing goes
-          online, ever. Needs a recent computer with a decent graphics chip (Apple Silicon Macs also work great).</p>
-          <div class="step">
-            <select id="localmodel"></select>
-            <button id="uselocal" class="primary">Use on-device AI</button>
-          </div>
-          <div class="divider"><span>or, use a <em>free</em> online brain</span></div>
-        </div>
         <p><strong>Connect a free OpenRouter account.</strong> Quick to start and works on any
         computer — it takes about a minute to set up, and it stays free.</p>
-        <p>The compromise: if you use their free models, our conversations — including anything I read
-        from your files for you — are sent to OpenRouter, and they're allowed to use those to teach their AI. Fine for everyday chores; pick the on-device option above
-        for anything you'd rather keep to yourself.</p>
+        <p>Fine for everyday chores; pick the on-device option below
+        for anything you'd rather keep private.</p>
         <div class="step">
           <span class="n">1</span>
           <button id="getkey" class="ghost">Get my free key ↗</button>
@@ -412,6 +412,16 @@
         <p style="font-size:13px;color:#b3aa9b;margin-top:12px">
           Your key is saved only in this browser, on this computer. It's never sent anywhere except OpenRouter itself.
         </p>
+        <div id="local-section">
+          <div class="divider"><span>or, run it on your computer</span></div>
+          <p><strong>On-device AI — no account, totally private.</strong>
+          It downloads once (4 to 5 GB), then thinks entirely on your machine: nothing goes
+          online, ever. Needs a decent graphics chip; still rough around the edges.</p>
+          <div class="step">
+            <select id="localmodel"></select>
+            <button id="uselocal" class="primary">Use on-device AI</button>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -420,7 +430,10 @@
         <input id="msg" placeholder="Ask me to help with something…" autocomplete="off" />
         <button id="send" class="primary">Send</button>
       </div>
-      <p class="fineprint">Your files live on your computer and I work on them right here in this tab.</p>
+      <p class="fineprint">
+        Your files live on your computer and I work on them right here in this tab.
+        <a id="savecopy" href="#" style="color:inherit">Save a copy of me</a> — I'm a single file.
+      </p>
     </footer>
 
     <script type="module" src="/src/main.ts"></script>

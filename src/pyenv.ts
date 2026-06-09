@@ -18,14 +18,24 @@ let userFs: any = null; // mountNativeFS handle for the user's folder, if mounte
 let userName: string | null = null; // the folder's real name
 let captured = "";
 
+/** False when /scratch is memory-only (file:// blocks OPFS) — lost on reload. */
+export let scratchPersists = true;
+
 export const ready = (async () => {
   pyodide = await loadPyodide();
   pyodide.setStdout({ batched: (s: string) => (captured += s + "\n") });
   pyodide.setStderr({ batched: (s: string) => (captured += s + "\n") });
 
-  // OPFS scratch dir — always available.
-  const opfs = await navigator.storage.getDirectory();
-  scratchFs = await pyodide.mountNativeFS("/scratch", opfs);
+  // OPFS scratch dir. Chrome blocks OPFS on file:// origins (the double-clicked
+  // HTML file case) — degrade to a plain in-memory /scratch so everything else
+  // still works; it just won't survive a reload.
+  try {
+    const opfs = await navigator.storage.getDirectory();
+    scratchFs = await pyodide.mountNativeFS("/scratch", opfs);
+  } catch {
+    scratchPersists = false;
+    pyodide.FS.mkdirTree("/scratch");
+  }
 })();
 
 /** The Emscripten FS — the one filesystem shared by python and the shell. */

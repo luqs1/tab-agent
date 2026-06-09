@@ -3,8 +3,9 @@ import {
   say, userSay, note, error, status, thinking,
   onClick, inputValue, showOnboard, showFolderChip,
 } from "./ui";
-import { ready, mountUserFolder } from "./pyenv";
+import { ready, mountUserFolder, scratchPersists } from "./pyenv";
 import { shellCd } from "./shell";
+import { decodeWorkflowHash, workflowParams, fillParams } from "./wf";
 import { connectMcp } from "./mcp";
 import { runAgent } from "./agent";
 import {
@@ -86,11 +87,11 @@ onClick("pick", async () => {
 });
 
 let busy = false;
-async function send() {
+async function send(textOverride?: string) {
   const box = document.getElementById("msg") as HTMLInputElement;
-  const text = box.value.trim();
+  const text = (textOverride ?? box.value).trim();
   if (!text || busy) return;
-  box.value = "";
+  if (!textOverride) box.value = "";
   userSay(text);
   if (getProvider() === "local") {
     if (!localReady()) {
@@ -116,14 +117,77 @@ async function send() {
   }
 }
 
-onClick("send", send);
+onClick("send", () => send());
 document.getElementById("msg")!.addEventListener("keydown", (e) => {
   if ((e as KeyboardEvent).key === "Enter") send();
 });
 
+// ---- workflows in the URL fragment (#wf=…) — consent card, never auto-run ----
+(async () => {
+  const wf = await decodeWorkflowHash(location.hash).catch(() => null);
+  if (!wf) return;
+  const card = document.getElementById("wfcard") as HTMLElement;
+  if (wf.title) document.getElementById("wf-title")!.textContent = `This link asks me to: ${wf.title}`;
+  document.getElementById("wf-body")!.textContent = wf.instructions;
+  const names = workflowParams(wf.instructions);
+  const paramsEl = document.getElementById("wf-params")!;
+  for (const name of names) {
+    const row = document.createElement("div");
+    row.className = "step";
+    row.innerHTML = `<span class="chip">${name}</span>`;
+    const input = document.createElement("input");
+    input.dataset.param = name;
+    input.placeholder = name;
+    input.style.flex = "1";
+    row.appendChild(input);
+    paramsEl.appendChild(row);
+  }
+  const close = () => {
+    card.hidden = true;
+    history.replaceState(null, "", location.pathname + location.search);
+  };
+  onClick("wf-skip", () => {
+    close();
+    note("Okay, ignored. The link's instructions are gone.");
+  });
+  onClick("wf-run", () => {
+    const values: Record<string, string> = {};
+    for (const input of paramsEl.querySelectorAll("input")) {
+      if (!input.value.trim()) {
+        input.focus();
+        note("Fill in the blanks above first, then hit Run.");
+        return;
+      }
+      values[input.dataset.param!] = input.value.trim();
+    }
+    close();
+    send("Please carry out these instructions now:\n\n" + fillParams(wf.instructions, values));
+  });
+  card.hidden = false;
+})();
+
+// ---- save-a-copy: the whole app is one file, so it can hand itself out ----
+onClick("savecopy", async () => {
+  try {
+    const html = await fetch(location.href).then((r) => r.text());
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    a.download = "tab.agent.html";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    note("Saved! Anyone can double-click that file to get their own tab.agent.");
+  } catch {
+    note("Couldn't grab my own file here — if you're already running from a file, just share that file itself.");
+  }
+});
+if (location.protocol === "file:")
+  (document.getElementById("savecopy") as HTMLElement).hidden = true;
+
 (async () => {
   await ready;
   status("ready");
+  if (!scratchPersists)
+    note("Heads up: running from a local file, so my scratch notes vanish on reload. Your real folder is unaffected.");
   if (MCP_URL) await connectMcp(MCP_URL);
 })();
 

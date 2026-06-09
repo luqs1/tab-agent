@@ -44,11 +44,29 @@ bun run build        # -> dist/index.html  (the ENTIRE app inlined into one file
 Host that single file on anything static: **GitHub Pages**, S3, or locally with
 `python3 -m http.server -d dist`. No server logic, no env, no secrets.
 
-> ⚠️ **Don't open `dist/index.html` directly via `file://`.** Verified: the LLM
-> call works from `file://`, but Chrome blocks **OPFS** for `file://` origins
-> (`SecurityError`), so the filesystem breaks. Serve it over `http(s)://` (even
-> `localhost`) — that's still just file delivery, not a backend. OPFS + File
-> System Access both work fine over plain static HTTP.
+### Share it / run it locally
+
+The app can hand itself out: **"Save a copy of me"** (footer) downloads the
+running single file as `tab.agent.html`. Double-clicking that file works —
+verified: Chrome blocks OPFS on `file://`, so `/scratch` degrades to in-memory
+(a note says it won't survive reloads), but everything else — the LLM call,
+folder sharing (FSA is available on `file://`), shell, python — works. For
+persistent scratch, serve it over any static HTTP instead
+(`python3 -m http.server -d dist`).
+
+## Workflows in a link
+
+Instructions (an install.md, a repeatable chore) can ride inside the URL
+**fragment**: `…/#wf=<base64url(deflate-raw(JSON{v,t,i}))>` (`src/wf.ts`). The
+fragment never leaves the browser — it's not sent in any request, so even the
+hosted copy can't see it — and the same link works on a `file://` copy.
+
+- `{{name}}` placeholders become input fields the recipient fills in.
+- **Nothing auto-runs.** A consent card shows the exact instructions with a
+  Run / No thanks choice; the hash is scrubbed after handling.
+- Ask the agent to "turn this into a shareable link" — the `make_workflow_link`
+  tool mints one (the sample skill compresses to ~250 URL chars; ~10k chars,
+  i.e. ~15–25 KB of markdown, stays shareable in every chat app).
 
 ## System actions: the click-to-run installer
 
