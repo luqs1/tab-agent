@@ -3,12 +3,13 @@
 // the model downloads once (~620 MB int8) and runs entirely on-device — audio
 // never leaves the computer.
 //
-// "Streaming" = re-transcribe the whole take on a self-pacing loop and rewrite
-// the textbox, so words firm up with full acoustic context. (Verified live:
-// the library's chunked StatefulStreamingTranscriber degenerates to "." after
-// the first chunk on this model — disjoint 2s chunks lose conformer context —
-// so whole-take decoding it is. Lag grows with take length; dictated chat
-// messages are short, and the final pass on stop is always complete.)
+// "Streaming" = transcribe the whole take WHEN THE SPEAKER PAUSES (simple
+// energy-based voice detection), rewriting the textbox so words land at
+// natural sentence breaks with full acoustic context. Decoding continuously
+// lagged hopelessly on the wasm backend, and the library's chunked
+// StatefulStreamingTranscriber degenerates to "." after the first chunk on
+// this model (disjoint chunks lose conformer context) — both verified live.
+// The final pass on stop is always complete.
 //
 // Why wasm+int8 rather than webgpu: the fp16 encoder (1.2 GB) fails session
 // creation in ort-web with std::bad_alloc (wasm heap ceiling), verified live.
@@ -56,6 +57,9 @@ export async function loadAsr(): Promise<boolean> {
 }
 
 // ---- recording ----
+const VOICE_RMS = 0.008; // above this = someone's talking (with noise suppression on)
+const PAUSE_MS = 700; // this much quiet = end of a phrase, safe to transcribe
+
 let ctx: AudioContext | null = null;
 let stream: MediaStream | null = null;
 let proc: ScriptProcessorNode | null = null;
@@ -63,7 +67,8 @@ let chunks: Float32Array[] = [];
 let recording = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let busy = false;
-let lastLen = 0;
+let lastVoice = 0;
+let voicedSinceDecode = false;
 
 function merged(): Float32Array {
   const total = chunks.reduce((n, c) => n + c.length, 0);
@@ -87,30 +92,38 @@ export async function startDictation(onText: (text: string) => void) {
   const src = ctx.createMediaStreamSource(stream);
   proc = ctx.createScriptProcessor(4096, 1, 1);
   chunks = [];
-  lastLen = 0;
   recording = true;
+  lastVoice = 0;
+  voicedSinceDecode = false;
   proc.onaudioprocess = (e) => {
-    if (recording) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    if (!recording) return;
+    const data = e.inputBuffer.getChannelData(0);
+    chunks.push(new Float32Array(data));
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4) sum += data[i] * data[i];
+    if (Math.sqrt(sum / (data.length / 4)) > VOICE_RMS) {
+      lastVoice = performance.now();
+      voicedSinceDecode = true;
+    }
   };
   src.connect(proc);
   proc.connect(ctx.destination);
 
-  // Self-pacing: the busy flag means a slow decode just delays the next pass.
+  // Decode only at pauses: when there's new speech AND it's gone quiet.
   timer = setInterval(async () => {
-    if (!recording || busy) return;
-    const pcm = merged();
-    if (pcm.length < 12000 || pcm.length === lastLen) return; // <0.75s or no new audio
-    lastLen = pcm.length;
+    if (!recording || busy || !voicedSinceDecode) return;
+    if (performance.now() - lastVoice < PAUSE_MS) return; // still talking
+    voicedSinceDecode = false;
     busy = true;
     try {
-      const r = await model.transcribe(pcm, 16000, {});
+      const r = await model.transcribe(merged(), 16000, {});
       if (recording && r?.utterance_text) onText(r.utterance_text.trim());
     } catch (e) {
       console.warn("[asr] partial transcribe failed:", e);
     } finally {
       busy = false;
     }
-  }, 1000);
+  }, 250);
 }
 
 /** Stop the mic and return a final clean transcription of the whole take. */
@@ -127,7 +140,7 @@ export async function stopDictation(): Promise<string> {
   while (busy) await new Promise((r) => setTimeout(r, 100));
   const pcm = merged();
   chunks = [];
-  lastLen = 0;
+  voicedSinceDecode = false;
   if (pcm.length < 4000) return "";
   try {
     const r = await model.transcribe(pcm, 16000, {});

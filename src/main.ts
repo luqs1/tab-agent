@@ -189,7 +189,9 @@ document.getElementById("msg")!.addEventListener("keydown", (e) => {
   if (!asrSupported()) micBtn.hidden = true;
   let armed = false;
   let baseText = "";
+  let switching = false; // ignore clicks while loading the model / opening the mic
   onClick("mic", async () => {
+    if (switching) return;
     const box = document.getElementById("msg") as HTMLInputElement;
     if (dictating()) {
       micBtn.classList.remove("rec");
@@ -199,23 +201,24 @@ document.getElementById("msg")!.addEventListener("keydown", (e) => {
       box.focus();
       return;
     }
-    if (!asrReady()) {
-      if (!armed) {
-        armed = true;
-        note(
-          "To take dictation I need to download a speech model first — Parakeet, about 620 MB, " +
-            "one time. It listens entirely on this computer; your voice never goes online. " +
-            "Click the mic again to start the download."
-        );
-        return;
-      }
-      if (!(await loadAsr())) {
-        armed = false;
-        return;
-      }
-    }
-    baseText = box.value ? box.value.replace(/\s+$/, "") + " " : "";
+    switching = true;
     try {
+      if (!asrReady()) {
+        if (!armed) {
+          armed = true;
+          note(
+            "To take dictation I need to download a speech model first — Parakeet, about 620 MB, " +
+              "one time. It listens entirely on this computer; your voice never goes online. " +
+              "Click the mic again to start the download."
+          );
+          return;
+        }
+        if (!(await loadAsr())) {
+          armed = false;
+          return;
+        }
+      }
+      baseText = box.value ? box.value.replace(/\s+$/, "") + " " : "";
       await startDictation((text) => {
         box.value = baseText + text;
       });
@@ -224,6 +227,8 @@ document.getElementById("msg")!.addEventListener("keydown", (e) => {
       note("Listening… click ⏹ when you're done — then edit the text however you like.");
     } catch (e) {
       error("I couldn't use the microphone: " + (e as Error).message);
+    } finally {
+      switching = false;
     }
   });
 }
