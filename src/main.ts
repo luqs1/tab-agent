@@ -11,7 +11,7 @@ import {
   rememberWorkflow, recentWorkflows, type Workflow,
 } from "./wf";
 import { connectMcp, disconnectMcp } from "./mcp";
-import { runAgent } from "./agent";
+import { runAgent, stopAgent } from "./agent";
 import {
   setKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
   getMcpUrl, setMcpUrl, getModel, setModel, FALLBACK_MODELS,
@@ -144,6 +144,7 @@ async function send(textOverride?: string, wf?: { title: string; body: string })
   busy = true;
   status("think");
   thinking(true);
+  showStop(true);
   try {
     await runAgent(text);
   } catch (e) {
@@ -152,8 +153,19 @@ async function send(textOverride?: string, wf?: { title: string; body: string })
     thinking(false);
     status("ready");
     busy = false;
+    showStop(false);
   }
 }
+
+// While a turn is in flight, swap Send for a Stop button that aborts it
+// (kills the in-flight request and ends the loop).
+const stopBtn = document.getElementById("stop") as HTMLButtonElement;
+const sendBtn = document.getElementById("send") as HTMLButtonElement;
+function showStop(on: boolean) {
+  stopBtn.hidden = !on;
+  sendBtn.hidden = on;
+}
+onClick("stop", () => stopAgent());
 
 onClick("send", () => send());
 
