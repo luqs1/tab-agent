@@ -40,6 +40,44 @@ export function say(text: string) {
   add(el);
 }
 
+/**
+ * A live agent bubble that fills in as tokens stream. `push` appends a delta
+ * (rendered as fast plain text while streaming, then as markdown once `done`);
+ * `reset` clears it (used when a failed model is retried on a backup); `done`
+ * finalizes, dropping the bubble if nothing ever streamed (a pure tool-call
+ * turn). The bubble and the thinking dots are mutually exclusive — the first
+ * token clears the dots.
+ */
+export function streamingSay() {
+  let el: HTMLElement | null = null;
+  let buf = "";
+  return {
+    push(delta: string) {
+      if (!el) {
+        thinking(false);
+        el = document.createElement("div");
+        el.className = "msg agent";
+        add(el);
+      }
+      buf += delta;
+      el.textContent = buf; // plain text mid-stream — cheap, no half-parsed markdown
+      scroll();
+    },
+    reset() {
+      buf = "";
+      if (el) el.textContent = "";
+    },
+    done() {
+      if (!el) return;
+      if (buf) el.innerHTML = md(buf);
+      else { el.remove(); el = null; }
+    },
+    get text() {
+      return buf;
+    },
+  };
+}
+
 /** The user's chat bubble. */
 export function userSay(text: string) {
   const el = document.createElement("div");
