@@ -10,11 +10,11 @@ import {
   decodeWorkflowHash, workflowParams, fillParams,
   rememberWorkflow, recentWorkflows, type Workflow,
 } from "./wf";
-import { connectMcp, disconnectMcp } from "./mcp";
+import { connectMcp, disconnectMcp, mcpServers } from "./mcp";
 import { runAgent, stopAgent } from "./agent";
 import {
   setKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
-  getMcpUrl, setMcpUrl, getModel, setModel, getStoredModel, FALLBACK_MODELS,
+  getMcpServers, setMcpServers, getModel, setModel, getStoredModel, FALLBACK_MODELS,
 } from "./settings";
 
 // The free tier shifts: a saved FREE model that's left our known-good list
@@ -98,17 +98,42 @@ if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
 // The ⚙ button just reopens the connection card.
 onClick("settings", () => showOnboard(true));
 
-// Optional MCP tool server: runtime-configurable, persisted, reconnects at boot.
-(document.getElementById("mcpurl") as HTMLInputElement).value = getMcpUrl();
+// Optional MCP tool servers: several at once, each with an optional bearer
+// token, persisted and reconnected at boot.
+function renderMcpServers() {
+  const holder = document.getElementById("mcp-servers")!;
+  holder.innerHTML = "";
+  for (const s of mcpServers()) {
+    const chip = document.createElement("button");
+    chip.className = "ghost";
+    chip.textContent = `🔌 ${s.url}  ✕`;
+    chip.title = "Disconnect this server";
+    chip.addEventListener("click", async () => {
+      await disconnectMcp(s.url);
+      setMcpServers(getMcpServers().filter((x) => x.url !== s.url));
+      renderMcpServers();
+      note("Tool server removed.");
+    });
+    holder.appendChild(chip);
+  }
+}
+renderMcpServers();
+
 onClick("savemcp", async () => {
   const url = inputValue("mcpurl").trim();
-  setMcpUrl(url);
   if (!url) {
-    await disconnectMcp();
-    note("Tool server removed.");
+    note("Paste a server URL first.");
     return;
   }
-  await connectMcp(url);
+  const token = inputValue("mcptoken").trim();
+  await connectMcp(url, token || undefined);
+  if (mcpServers().some((s) => s.url === url)) {
+    // Connected OK — persist it (replacing any stale entry for the same url).
+    setMcpServers([...getMcpServers().filter((s) => s.url !== url), { url, token: token || undefined }]);
+    (document.getElementById("mcpurl") as HTMLInputElement).value = "";
+    (document.getElementById("mcptoken") as HTMLInputElement).value = "";
+    renderMcpServers();
+  }
 });
 
 // Folder sharing needs the File System Access API — Chrome/Edge only.
@@ -384,8 +409,10 @@ if (location.protocol === "file:") {
   status("ready");
   if (!scratchPersists)
     note("Heads up: running from a local file, so my scratch notes vanish on reload. Your real folder is unaffected.");
-  const mcp = getMcpUrl() || MCP_URL;
-  if (mcp) await connectMcp(mcp);
+  // The build-time default server (if any), then every saved one.
+  if (MCP_URL && !getMcpServers().some((s) => s.url === MCP_URL)) await connectMcp(MCP_URL);
+  for (const s of getMcpServers()) await connectMcp(s.url, s.token);
+  renderMcpServers();
 })();
 
 // ---- update check: compare our build id against the freshly served page ----
