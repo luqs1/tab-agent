@@ -20,10 +20,18 @@ const esc = (s: string) =>
 // Tiny markdown: fences, inline code, bold, links. Enough for chat replies.
 function md(s: string): string {
   let html = esc(s);
-  html = html.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, code) => `<pre>${code.replace(/\n$/, "")}</pre>`);
+  // Pull fenced blocks out first, leaving a placeholder, so the inline passes
+  // below never reach inside them — backticks/asterisks/links in fenced code
+  // must stay literal. Restored at the end.
+  const blocks: string[] = [];
+  html = html.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, code) => {
+    blocks.push(`<pre>${code.replace(/\n$/, "")}</pre>`);
+    return `\x00${blocks.length - 1}\x00`;
+  });
   html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  html = html.replace(/\x00(\d+)\x00/g, (_, i) => blocks[+i]);
   return html;
 }
 
