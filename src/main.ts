@@ -4,7 +4,7 @@ import {
   onClick, inputValue, showOnboard, showFolderChip,
 } from "./ui";
 import { asrSupported, asrReady, loadAsr, startDictation, stopDictation, dictating } from "./asr";
-import { ready, mountUserFolder, scratchPersists } from "./pyenv";
+import { ready, mountUserFolder, scratchPersists, uploadToScratch } from "./pyenv";
 import { shellCd } from "./shell";
 import {
   decodeWorkflowHash, workflowParams, fillParams,
@@ -157,6 +157,24 @@ onClick("pick", async () => {
     if ((e as Error).name !== "AbortError") error("I couldn't open that folder: " + (e as Error).message);
   }
 });
+
+// Upload fallback: works on any browser (Firefox/Safari can't share a folder).
+// Chosen files land in /scratch, where both python_exec and shell can see them.
+{
+  const fileInput = document.getElementById("fileinput") as HTMLInputElement;
+  onClick("attach", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    for (const file of Array.from(fileInput.files ?? [])) {
+      try {
+        const path = await uploadToScratch(file);
+        note(`📎 Uploaded “${file.name}” to ${path}.`);
+      } catch (e) {
+        error(`Couldn't upload “${file.name}”: ${(e as Error).message}`);
+      }
+    }
+    fileInput.value = ""; // let the same file be re-uploaded
+  });
+}
 
 let busy = false;
 async function send(textOverride?: string, wf?: { title: string; body: string }) {

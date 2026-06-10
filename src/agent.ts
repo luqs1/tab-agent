@@ -3,7 +3,7 @@
 // Uses the OpenAI chat-completions format. The browser calls OpenRouter directly
 // (it sends permissive CORS) — there is no backend.
 import { say, note, error, activity, thinking } from "./ui";
-import { runPython, userMount } from "./pyenv";
+import { runPython, userMount, downloadSandboxFile } from "./pyenv";
 import { runShell } from "./shell";
 import { callMcp, mcpTools } from "./mcp";
 import { loadSkills } from "./skills";
@@ -32,6 +32,9 @@ and describe the result simply.
 You have a Python sandbox (tool: python_exec) and a bash-like shell (tool: shell).
 Both tools share ONE filesystem; a file written by one is visible to the other.
 ${folders}
+Files move without a shared folder too: the user can upload files (they land in
+/scratch with the 📎 button), and you can hand any sandbox file back to them with
+download_file — use it to deliver a result when no folder is shared.
 Prefer python_exec for real work; use shell for quick file ops and pipelines.
 python_exec accepts ONLY Python source; shell accepts ONLY bash. If a tool call
 errors, change your approach — never repeat the identical call.
@@ -65,6 +68,19 @@ function builtinTools() {
         name: "shell",
         description: `Run a BASH command (echo/ls/grep/sed/cat/mkdir/…), never Python. Same filesystem as python_exec.`,
         parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "download_file",
+        description:
+          "Hand a file from the sandbox to the user as a browser download. Use this to give back a result they can't otherwise reach — e.g. when no folder is shared.",
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string", description: "sandbox path, e.g. /scratch/report.csv" } },
+          required: ["path"],
+        },
       },
     },
     {
@@ -119,6 +135,7 @@ function allTools() {
 async function dispatch(name: string, args: any): Promise<string> {
   if (name === "python_exec") return runPython(args.code);
   if (name === "shell") return runShell(args.command);
+  if (name === "download_file") return downloadSandboxFile(args.path);
   if (name === "make_workflow_link") {
     const url = await encodeWorkflowLink({ title: args.title, instructions: args.instructions });
     return `Link created (${url.length} chars — fragment stays on-device, never sent to any server):\n${url}\nShow it to the user as a markdown link they can copy.`;
@@ -232,6 +249,7 @@ async function complete(key: string, messages: any[], signal: AbortSignal): Prom
 function describe(name: string, args: any): { label: string; detail?: string } {
   if (name === "python_exec") return { label: "doing a bit of work behind the scenes…", detail: args.code };
   if (name === "shell") return { label: "looking through the files…", detail: args.command };
+  if (name === "download_file") return { label: "saving that to your computer…", detail: args.path };
   if (name === "write_installer") return { label: "preparing a one-click setup file for you…", detail: args.script };
   if (name === "make_workflow_link") return { label: "packing that into a shareable link…", detail: args.instructions };
   return { label: `using ${name.replace(/^mcp__/, "")}…`, detail: JSON.stringify(args, null, 2) };
