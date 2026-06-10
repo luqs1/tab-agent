@@ -55,9 +55,26 @@ export async function loadAsr(): Promise<boolean> {
 }
 
 // ---- recording ----
+// AudioWorklet (ScriptProcessorNode is deprecated). The processor is a tiny
+// pass-through that ships each input frame to the main thread; we register it
+// from an inline blob URL so it survives the single-file bundle (no separate
+// asset to load). It writes nothing to its output, so the destination connection
+// that keeps it pumping stays silent — no mic feedback.
+const WORKLET_SRC = `
+class CaptureProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) this.port.postMessage(ch.slice(0));
+    return true;
+  }
+}
+registerProcessor('capture', CaptureProcessor);
+`;
+let workletUrl: string | null = null;
+
 let ctx: AudioContext | null = null;
 let stream: MediaStream | null = null;
-let proc: ScriptProcessorNode | null = null;
+let node: AudioWorkletNode | null = null;
 let chunks: Float32Array[] = [];
 let recording = false;
 
@@ -80,25 +97,28 @@ export async function startDictation() {
     audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
   });
   ctx = new AudioContext({ sampleRate: 16000 });
+  if (!workletUrl)
+    workletUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: "application/javascript" }));
+  await ctx.audioWorklet.addModule(workletUrl);
   const src = ctx.createMediaStreamSource(stream);
-  proc = ctx.createScriptProcessor(4096, 1, 1);
+  node = new AudioWorkletNode(ctx, "capture", { channelCount: 1 });
   chunks = [];
   recording = true;
-  proc.onaudioprocess = (e) => {
-    if (recording) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  node.port.onmessage = (e) => {
+    if (recording) chunks.push(e.data as Float32Array);
   };
-  src.connect(proc);
-  proc.connect(ctx.destination);
+  src.connect(node);
+  node.connect(ctx.destination);
 }
 
 /** Stop the mic and return one clean transcription of the whole take. */
 export async function stopDictation(): Promise<string> {
   recording = false;
-  proc?.disconnect();
+  node?.disconnect();
   stream?.getTracks().forEach((t) => t.stop());
   await ctx?.close().catch(() => {});
   ctx = null;
-  proc = null;
+  node = null;
   stream = null;
   const pcm = merged();
   chunks = [];

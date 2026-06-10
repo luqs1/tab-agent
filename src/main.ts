@@ -180,7 +180,11 @@ let busy = false;
 async function send(textOverride?: string, wf?: { title: string; body: string }) {
   const box = document.getElementById("msg") as HTMLTextAreaElement;
   const text = (textOverride ?? box.value).trim();
-  if (!text || busy) return;
+  if (!text) return;
+  if (busy) {
+    note("I'm still on the last thing — give me a moment, then send it again. (Or hit ⏹ Stop.)");
+    return;
+  }
   if (!textOverride) {
     box.value = "";
     box.style.height = "auto";
