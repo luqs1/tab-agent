@@ -130,6 +130,38 @@ async function dispatch(name: string, args: any): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// A hung OpenRouter request must not freeze the turn: each fetch gets its own
+// timeout, and the whole run is cancellable from a Stop button. Worst case used
+// to be 4 fallback models × 2 attempts of unkillable hangs.
+const REQUEST_TIMEOUT_MS = 60_000;
+let runController: AbortController | null = null; // user-stop for the active run
+let stopped = false;
+
+/** True while a turn is in flight (the Stop button shows only then). */
+export function agentBusy(): boolean {
+  return runController !== null;
+}
+
+/** Abort the in-flight turn: kills the current request and ends the loop. */
+export function stopAgent() {
+  stopped = true;
+  runController?.abort();
+}
+
+// One signal that fires when EITHER input does (user stop OR per-request
+// timeout). AbortSignal.any isn't in every target, so combine by hand.
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  const ctrl = new AbortController();
+  for (const s of signals) {
+    if (s.aborted) {
+      ctrl.abort();
+      break;
+    }
+    s.addEventListener("abort", () => ctrl.abort(), { once: true });
+  }
+  return ctrl.signal;
+}
+
 // Free/local models run with small context windows; one `cat` of a big file or
 // a chatty script can blow the next completion. Cap each tool result, keeping
 // the head and tail (the start sets up the result; the tail usually carries the
@@ -148,13 +180,15 @@ function clampToolOutput(out: string): string {
 
 // Free models get rate-limited. Try the user's model first, then fall through
 // the free fallbacks; retry each once on 429 before moving on.
-async function complete(key: string, messages: any[]): Promise<any> {
+async function complete(key: string, messages: any[], signal: AbortSignal): Promise<any> {
   if (getProvider() === "local") return localComplete(messages, allTools());
   const models = [getModel(), ...FALLBACK_MODELS.filter((m) => m !== getModel())];
   let last: any = { error: { message: "no models attempted" } };
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
       let resp: any;
+      const timeout = new AbortController();
+      const t = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
       try {
         resp = await fetch(ENDPOINT, {
           method: "POST",
@@ -165,9 +199,16 @@ async function complete(key: string, messages: any[]): Promise<any> {
             "X-Title": "tab.agent",
           },
           body: JSON.stringify({ model, messages, tools: allTools(), tool_choice: "auto" }),
+          signal: anySignal([signal, timeout.signal]),
         }).then((r) => r.json());
       } catch (e) {
-        resp = { error: { message: (e as Error).message } };
+        if (signal.aborted) return { stopped: true }; // user hit Stop — bail out entirely
+        // A timeout looks like a transient 5xx so it gets the one retry below.
+        resp = timeout.signal.aborted
+          ? { error: { message: "That took too long, so I gave up on it.", code: 504 } }
+          : { error: { message: (e as Error).message } };
+      } finally {
+        clearTimeout(t);
       }
       const code = resp.error?.code ?? resp.error?.status;
       if (!resp.error) return resp;
@@ -215,10 +256,19 @@ export async function runAgent(userText: string, maxTurns = 10) {
 
   const seenCalls = new Map<string, number>(); // small local models love repeating a failing call
 
+  stopped = false;
+  runController = new AbortController();
+  const signal = runController.signal;
+  try {
   for (let turn = 0; turn < maxTurns; turn++) {
     thinking(true);
-    const resp = await complete(key, messages);
+    const resp = await complete(key, messages, signal);
     thinking(false);
+
+    if (stopped || resp.stopped) {
+      note("Okay — I've stopped.");
+      return;
+    }
 
     if (resp.error) {
       const detail = resp.error.message ?? JSON.stringify(resp.error);
@@ -248,6 +298,10 @@ export async function runAgent(userText: string, maxTurns = 10) {
     }
 
     for (const call of calls) {
+      if (stopped) {
+        note("Okay — I've stopped.");
+        return;
+      }
       const name = call.function.name;
       let args: any = {};
       try {
@@ -276,4 +330,7 @@ export async function runAgent(userText: string, maxTurns = 10) {
     }
   }
   note("That was a lot of steps, so I paused here — say “keep going” to continue.");
+  } finally {
+    runController = null;
+  }
 }
