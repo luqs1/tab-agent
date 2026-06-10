@@ -14,12 +14,16 @@ import { connectMcp, disconnectMcp } from "./mcp";
 import { runAgent, stopAgent } from "./agent";
 import {
   setKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
-  getMcpUrl, setMcpUrl, getModel, setModel, FALLBACK_MODELS,
+  getMcpUrl, setMcpUrl, getModel, setModel, getStoredModel, FALLBACK_MODELS,
 } from "./settings";
 
-// The free tier shifts: a saved model that's left our known-good list would
-// burn a failed call every turn, so drop it back to the default.
-if (!FALLBACK_MODELS.includes(getModel())) setModel("");
+// The free tier shifts: a saved FREE model that's left our known-good list
+// would burn a failed call every turn, so drop it back to the default. A
+// deliberately-chosen paid model (no :free suffix) is the user's call — leave it.
+{
+  const m = getModel();
+  if (m.endsWith(":free") && !FALLBACK_MODELS.includes(m)) setModel("");
+}
 import { LOCAL_MODELS, loadLocalModel, localReady, gpuAvailable } from "./local";
 
 // Point this at any browser-CORS-friendly MCP server.
@@ -65,6 +69,15 @@ onClick("savekey", () => {
   } else {
     note("That looks empty — paste the whole key, it starts with sk-or-…");
   }
+});
+
+// Optional model override (paid keys can point at Claude/GPT/etc.); persisted,
+// blank falls back to the free default.
+(document.getElementById("model") as HTMLInputElement).value = getStoredModel();
+onClick("savemodel", () => {
+  setModel(inputValue("model"));
+  const m = getStoredModel();
+  note(m ? `Model set to ${m}.` : "Using the free default model.");
 });
 
 onClick("uselocal", async () => {
