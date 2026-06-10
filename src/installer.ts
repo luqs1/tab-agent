@@ -7,6 +7,7 @@
 // runs (a Gatekeeper "unidentified developer" prompt appears; clicking Open is
 // the authorization). Notarizing later removes that prompt.
 import { zipWithMode } from "./zip";
+import { confirmInstaller } from "./ui";
 
 function download(name: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
@@ -26,6 +27,11 @@ export async function writeInstaller(name: string, script: string): Promise<stri
   const body = script.startsWith("#!")
     ? script
     : `#!/bin/bash\nset -euo pipefail\n\n${script}\n\necho\necho "✅ Done. You can close this window."\n`;
+
+  // Explicit consent: the user must see the full script and approve before any
+  // .zip is produced (file/MCP content steering the model is the threat here).
+  if (!(await confirmInstaller(command, body)))
+    return "The user reviewed the installer and chose not to download it. Don't retry unless they ask.";
 
   download(`${base}.zip`, zipWithMode(command, body));
 
