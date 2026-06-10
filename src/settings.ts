@@ -22,6 +22,8 @@ export const hasKey = () => getKey().length > 0;
 
 export const getModel = () => localStorage.getItem(MODEL) || DEFAULT_MODEL;
 export const setModel = (m: string) => localStorage.setItem(MODEL, m.trim());
+/** The raw saved model override ("" when none — getModel() falls back to the default). */
+export const getStoredModel = () => localStorage.getItem(MODEL) ?? "";
 
 // Where the brain lives: "openrouter" (free key) or "local" (WebLLM on-device).
 const PROVIDER = "tab-agent.provider";
