@@ -53,9 +53,16 @@ Host it on anything static, or serve locally with `python3 -m http.server -d dis
 
 "Save a copy of me" (footer) downloads the running app as `tab.agent.html`.
 Double-clicking that file works: Chrome blocks OPFS on `file://`, so `/scratch`
-falls back to in-memory (lost on reload — the app says so), but the LLM call,
-folder sharing, shell, and python all work. Downloaded copies are frozen at
-their build, so on `file://` the footer links back to the hosted URL instead.
+falls back to in-memory (lost on reload — the app says so), but folder sharing,
+shell, and python still work. Downloaded copies are frozen at their build, so on
+`file://` the footer links back to the hosted URL instead.
+
+**A saved copy is not actually offline.** The single file is the *app*, not its
+runtimes: Pyodide (python/shell), WebLLM (on-device model), and Parakeet
+(dictation) are each fetched from a CDN on first use, and the OpenRouter brain
+is a remote API. So a saved copy still needs the internet — open it on a plane
+with no connection and it can't run python/shell, load a model, or chat.
+Bundling Pyodide for genuine offline use is a possible future step.
 
 ## Workflows in a link
 
