@@ -535,12 +535,16 @@
           </div>
         </div>
         <div class="divider"><span>extra tools (optional)</span></div>
-        <p style="font-size:14px">Connect an MCP tool server to give me more abilities — it must speak
-        Streamable HTTP and allow browser connections (CORS).</p>
+        <p style="font-size:14px">Connect one or more MCP tool servers to give me more abilities — each must
+        speak Streamable HTTP and allow browser connections (CORS).</p>
         <div class="step">
           <input id="mcpurl" placeholder="https://your-server.example.com/mcp" style="flex:1;min-width:200px" />
           <button id="savemcp" class="ghost">Connect tools</button>
         </div>
+        <div class="step">
+          <input id="mcptoken" placeholder="Bearer token (optional)" style="flex:1;min-width:200px" />
+        </div>
+        <div id="mcp-servers" class="step"></div>
         <div id="recent-section" hidden>
           <div class="divider"><span>recent workflows</span></div>
           <div id="recent-wfs" class="step"></div>

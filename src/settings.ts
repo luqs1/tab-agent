@@ -37,7 +37,16 @@ export const setProvider = (p: Provider) => localStorage.setItem(PROVIDER, p);
 export const getLocalModel = () => localStorage.getItem(LOCAL_MODEL) ?? "";
 export const setLocalModel = (m: string) => localStorage.setItem(LOCAL_MODEL, m);
 
-// Optional remote MCP server (Streamable HTTP, must be CORS-friendly).
-const MCP = "tab-agent.mcp_url";
-export const getMcpUrl = () => localStorage.getItem(MCP) ?? "";
-export const setMcpUrl = (u: string) => localStorage.setItem(MCP, u.trim());
+// Optional remote MCP servers (Streamable HTTP, must be CORS-friendly). Several
+// can be connected at once, each with an optional bearer token.
+const MCP = "tab-agent.mcp_servers";
+export type McpServer = { url: string; token?: string };
+export function getMcpServers(): McpServer[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(MCP) || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+export const setMcpServers = (s: McpServer[]) => localStorage.setItem(MCP, JSON.stringify(s));
