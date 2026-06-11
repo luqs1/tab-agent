@@ -2,7 +2,7 @@
 //
 // Uses the OpenAI chat-completions format. The browser calls OpenRouter directly
 // (it sends permissive CORS) — there is no backend.
-import { say, note, error, activity, thinking } from "./ui";
+import { say, note, error, activity, thinking, streamingSay } from "./ui";
 import { runPython, userMount, downloadSandboxFile } from "./pyenv";
 import { runShell } from "./shell";
 import { callMcp, mcpTools } from "./mcp";
@@ -195,37 +195,131 @@ function clampToolOutput(out: string): string {
   );
 }
 
+// A live text sink (see ui.streamingSay): tokens flow in as they arrive.
+type Sink = { push(delta: string): void; reset(): void };
+
+// One streaming call to one model. Renders content deltas into `sink` as they
+// arrive and reassembles the final OpenAI-shaped response (content + tool_calls
+// rebuilt from their fragments) so the agent loop is unchanged. Returns an
+// { error } object on any failure, matching the non-streaming shape.
+async function streamOnce(key: string, model: string, messages: any[], sink: Sink, signal: AbortSignal): Promise<any> {
+  let resp: Response;
+  try {
+    resp = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${key}`,
+        "HTTP-Referer": location.origin,
+        "X-Title": "tab.agent",
+      },
+      body: JSON.stringify({ model, messages, tools: allTools(), tool_choice: "auto", stream: true }),
+      signal,
+    });
+  } catch (e) {
+    if (signal.aborted) return { aborted: true }; // user Stop or per-request timeout
+    return { error: { message: (e as Error).message } };
+  }
+
+  if (!resp.ok) {
+    // Errors (429, model withdrawn, bad key) arrive as a normal JSON body
+    // before any stream starts — parse it and let the caller's fallback decide.
+    const body = await resp.json().catch(() => ({}));
+    return { error: { code: resp.status, status: resp.status, ...(body.error ?? {}) } };
+  }
+
+  // Some models/providers ignore stream:true and return a plain JSON completion.
+  // Detect that and hand it back whole (the loop will render it after the fact).
+  // Reset first: a previous model may have streamed partial text into the sink,
+  // which would otherwise shadow this completion's content in the loop.
+  if (!resp.headers.get("content-type")?.includes("text/event-stream")) {
+    sink.reset();
+    return resp.json().catch((e) => ({ error: { message: (e as Error).message } }));
+  }
+
+  sink.reset(); // clear any partial text left by a previous failed model
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let content = "";
+  const toolCalls: any[] = []; // indexed by delta.tool_calls[].index
+  let finish: string | null = null;
+  let streamErr: any = null;
+
+  for (;;) {
+    let done: boolean, value: Uint8Array | undefined;
+    try {
+      ({ done, value } = await reader.read());
+    } catch (e) {
+      if (signal.aborted) return { aborted: true }; // Stop or timeout mid-stream
+      return { error: { message: (e as Error).message } };
+    }
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue; // skip SSE comments / keep-alives
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") continue;
+      let json: any;
+      try {
+        json = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (json.error) {
+        streamErr = json.error;
+        continue;
+      }
+      const choice = json.choices?.[0];
+      if (!choice) continue;
+      const delta = choice.delta ?? {};
+      if (delta.content) {
+        content += delta.content;
+        sink.push(delta.content);
+      }
+      for (const tc of delta.tool_calls ?? []) {
+        const i = tc.index ?? 0;
+        if (!toolCalls[i]) toolCalls[i] = { id: tc.id, type: "function", function: { name: "", arguments: "" } };
+        if (tc.id) toolCalls[i].id = tc.id;
+        if (tc.function?.name) toolCalls[i].function.name += tc.function.name;
+        if (tc.function?.arguments) toolCalls[i].function.arguments += tc.function.arguments;
+      }
+      if (choice.finish_reason) finish = choice.finish_reason;
+    }
+  }
+
+  if (streamErr) return { error: streamErr };
+  const message: any = { role: "assistant", content: content || null };
+  const calls = toolCalls.filter(Boolean);
+  if (calls.length) message.tool_calls = calls;
+  return { choices: [{ message, finish_reason: finish }] };
+}
+
 // Free models get rate-limited. Try the user's model first, then fall through
-// the free fallbacks; retry each once on 429 before moving on.
-async function complete(key: string, messages: any[], signal: AbortSignal): Promise<any> {
+// the free fallbacks; retry each once on 429 before moving on. `sink` receives
+// streamed tokens (unused by the non-streaming on-device path); `signal` is the
+// user-stop, combined per attempt with a request timeout.
+async function complete(key: string, messages: any[], sink: Sink, signal: AbortSignal): Promise<any> {
   if (getProvider() === "local") return localComplete(messages, allTools());
   const models = [getModel(), ...FALLBACK_MODELS.filter((m) => m !== getModel())];
   let last: any = { error: { message: "no models attempted" } };
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
-      let resp: any;
       const timeout = new AbortController();
       const t = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
+      let resp: any;
       try {
-        resp = await fetch(ENDPOINT, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${key}`,
-            "HTTP-Referer": location.origin,
-            "X-Title": "tab.agent",
-          },
-          body: JSON.stringify({ model, messages, tools: allTools(), tool_choice: "auto" }),
-          signal: anySignal([signal, timeout.signal]),
-        }).then((r) => r.json());
-      } catch (e) {
-        if (signal.aborted) return { stopped: true }; // user hit Stop — bail out entirely
-        // A timeout looks like a transient 5xx so it gets the one retry below.
-        resp = timeout.signal.aborted
-          ? { error: { message: "That took too long, so I gave up on it.", code: 504 } }
-          : { error: { message: (e as Error).message } };
+        resp = await streamOnce(key, model, messages, sink, anySignal([signal, timeout.signal]));
       } finally {
         clearTimeout(t);
+      }
+      if (resp.aborted) {
+        if (signal.aborted) return { stopped: true }; // user hit Stop — bail out entirely
+        // A timeout looks like a transient 5xx so it gets the one retry below.
+        resp = { error: { message: "That took too long, so I gave up on it.", code: 504 } };
       }
       const code = resp.error?.code ?? resp.error?.status;
       if (!resp.error) return resp;
@@ -280,15 +374,19 @@ export async function runAgent(userText: string, maxTurns = 10) {
   try {
   for (let turn = 0; turn < maxTurns; turn++) {
     thinking(true);
-    const resp = await complete(key, messages, signal);
+    const stream = streamingSay();
+    const resp = await complete(key, messages, stream, signal);
     thinking(false);
 
     if (stopped || resp.stopped) {
+      stream.done(); // finalize whatever streamed before the stop
       note("Okay — I've stopped.");
       return;
     }
 
     if (resp.error) {
+      stream.reset();
+      stream.done(); // drop the bubble — any partial text came from a dead stream
       const detail = resp.error.message ?? JSON.stringify(resp.error);
       error(
         resp.error.code === 401
@@ -300,12 +398,18 @@ export async function runAgent(userText: string, maxTurns = 10) {
 
     const msg = resp.choices?.[0]?.message;
     if (!msg) {
+      stream.reset();
+      stream.done();
       error("I got a reply I didn't understand. Mind trying that again?");
       return;
     }
 
+    stream.done(); // finalize the live bubble (or drop it if nothing streamed)
+
     messages.push(msg); // push the assistant turn verbatim (keeps tool_calls intact)
-    if (msg.content) say(msg.content);
+    // Streamed content is already on screen; only say() what wasn't streamed
+    // (the on-device path, or a model that returned plain JSON).
+    if (msg.content && !stream.text) say(msg.content);
 
     const calls = msg.tool_calls ?? [];
     if (calls.length === 0) {
