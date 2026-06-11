@@ -24,7 +24,7 @@ import {
   const m = getModel();
   if (m.endsWith(":free") && !FALLBACK_MODELS.includes(m)) setModel("");
 }
-import { LOCAL_MODELS, loadLocalModel, localReady, gpuAvailable } from "./local";
+import { LOCAL_MODELS, loadLocalModel, localReady, gpuAvailable, gpuUsable } from "./local";
 
 // Point this at any browser-CORS-friendly MCP server.
 const MCP_URL = import.meta.env.VITE_MCP_URL;
@@ -55,6 +55,21 @@ if (!connected()) showOnboard(true);
   if (LOCAL_MODELS.some((m) => m.id === getLocalModel())) sel.value = getLocalModel();
   else setLocalModel("");
   if (!gpuAvailable()) (document.getElementById("local-section") as HTMLElement).hidden = true;
+  // WebGPU existing isn't enough: some browsers (Safari; Brave with shields)
+  // clamp adapter limits below what the MLC kernels need. Probe and say so up
+  // front rather than letting the download fail at the end.
+  else
+    gpuUsable().then((ok) => {
+      if (ok) return;
+      const sec = document.getElementById("local-section") as HTMLElement;
+      const p = sec.querySelector("p");
+      if (p)
+        p.innerHTML =
+          "<strong>On-device AI — not available in this browser.</strong> " +
+          "This browser limits what web pages can do with the graphics chip. " +
+          "It works in Chrome or Edge on this same computer.";
+      sec.querySelector(".step")?.setAttribute("hidden", "");
+    });
 }
 
 onClick("getkey", () => window.open("https://openrouter.ai/keys", "_blank"));
