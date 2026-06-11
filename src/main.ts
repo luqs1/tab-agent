@@ -180,7 +180,7 @@ if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
 
 // The ⚙ button toggles the card — click again to dismiss it. Onboarding and
 // settings are the same card in two modes: unconnected it's the guided "get
-// a brain" flow; connected it opens as plain Settings with the onboarding
+// a model" flow; connected it opens as plain Settings with the onboarding
 // copy hidden (CSS .settings-mode) and a matching title.
 function reflectSettingsMode() {
   const card = document.getElementById("onboard") as HTMLElement;

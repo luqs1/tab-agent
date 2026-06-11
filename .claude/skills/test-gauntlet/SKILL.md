@@ -37,7 +37,7 @@ The README's folder-share step needs a native picker — not automatable; use th
 ## Free-tier patience rules
 
 - Allow **up to ~90s per turn**. Free models rate-limit constantly.
-- "Giving it another try…" and "switching to a backup brain…" notes are **normal fallback churn**, not failures.
+- "Giving it another try…" and "switching to a backup model…" notes are **normal fallback churn**, not failures.
 - A turn is a FAIL only if it ends in an error card (`.oops`) or produces nothing relevant.
 - Models vary: judge that the work happened (file exists, answer correct), not the phrasing.
 
