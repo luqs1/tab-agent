@@ -152,6 +152,10 @@
         border: 1px solid var(--accent-deep);
         border-bottom-right-radius: 6px;
         box-shadow: var(--shadow);
+        /* light-on-dark text renders heavier than the agent's dark-on-white;
+           antialiased smoothing brings the perceived weight back in line */
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
       }
 
       .msg code, .msg pre {
