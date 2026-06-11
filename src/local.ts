@@ -27,6 +27,24 @@ export function gpuAvailable(): boolean {
   return "gpu" in navigator;
 }
 
+// The MLC kernels need 10 storage buffers per shader stage. Capable GPUs can
+// still fail here when the BROWSER clamps adapter limits to the WebGPU spec
+// minimum of 8 — Safari does (anti-fingerprinting), as does Brave with
+// shields — seen in practice on an Apple M4 in Safari. Chrome/Edge expose the
+// hardware's real limits.
+const MIN_STORAGE_BUFFERS = 10;
+
+/** Whether this browser's WebGPU adapter can actually run the MLC kernels. */
+export async function gpuUsable(): Promise<boolean> {
+  if (!gpuAvailable()) return false;
+  try {
+    const adapter = await (navigator as any).gpu.requestAdapter();
+    return !!adapter && adapter.limits.maxStorageBuffersPerShaderStage >= MIN_STORAGE_BUFFERS;
+  } catch {
+    return false;
+  }
+}
+
 async function lib() {
   if (!webllm) webllm = await import(/* @vite-ignore */ WEBLLM_URL);
   return webllm;
@@ -71,7 +89,14 @@ export async function loadLocalModel(modelId: string): Promise<boolean> {
     return true;
   } catch (e) {
     engine = null;
-    error("I couldn't start the on-device AI: " + (e as Error).message);
+    const msg = (e as Error).message ?? String(e);
+    error(
+      /maxStorageBuffersPerShaderStage|exceeds limit/i.test(msg)
+        ? "This browser limits what web pages can do with the graphics chip, so the " +
+            "on-device AI can't start here. It works in Chrome or Edge on this same " +
+            "computer — or use the free key option, which works anywhere."
+        : "I couldn't start the on-device AI: " + msg
+    );
     return false;
   } finally {
     status("ready");
