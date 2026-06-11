@@ -13,7 +13,7 @@ import {
 import { connectMcp, disconnectMcp, mcpServers } from "./mcp";
 import { runAgent, stopAgent } from "./agent";
 import {
-  setKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
+  setKey, getKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
   getMcpServers, setMcpServers, getModel, setModel, getStoredModel, FALLBACK_MODELS,
 } from "./settings";
 
@@ -74,10 +74,36 @@ if (!connected()) showOnboard(true);
 
 onClick("getkey", () => window.open("https://openrouter.ai/keys", "_blank"));
 
+// Saved-key state, in place: the same row signals "you're set up" through the
+// placeholder ("✓ Key saved (…last4)") and the button label (Connect ⇄ Change),
+// so the card doesn't grow and the secret is never re-rendered into the DOM.
+const keyEl = document.getElementById("key") as HTMLInputElement;
+const keyBtn = document.getElementById("savekey") as HTMLButtonElement;
+function reflectKeyState() {
+  if (keyEl.value) {
+    keyBtn.textContent = "Connect"; // something typed — saving is the action again
+  } else if (hasKey()) {
+    const tail = getKey().slice(-4);
+    keyEl.placeholder = `✓ Key saved (sk-or-…${tail}) — paste a new one to replace`;
+    keyBtn.textContent = "Change";
+  } else {
+    keyEl.placeholder = "Paste your key here (it starts with sk-or-…)";
+    keyBtn.textContent = "Connect";
+  }
+}
+reflectKeyState();
+keyEl.addEventListener("input", reflectKeyState);
+
 onClick("savekey", () => {
+  if (!keyEl.value.trim() && hasKey()) {
+    keyEl.focus(); // "Change" with nothing typed — invite a paste, change nothing
+    return;
+  }
   setKey(inputValue("key"));
   if (hasKey()) {
     setProvider("openrouter");
+    keyEl.value = "";
+    reflectKeyState();
     showOnboard(false);
     note("Connected! You're all set.");
     say("All connected. What shall we do first?");
@@ -87,8 +113,13 @@ onClick("savekey", () => {
 });
 
 // Optional model override (paid keys can point at Claude/GPT/etc.); persisted,
-// blank falls back to the free default.
-(document.getElementById("model") as HTMLInputElement).value = getStoredModel();
+// prefilled with the saved override. When blank, the placeholder shows the
+// effective free default so the field never reads as "unconfigured".
+{
+  const el = document.getElementById("model") as HTMLInputElement;
+  el.value = getStoredModel();
+  el.placeholder = `${getModel()} (default — leave blank to use it)`;
+}
 onClick("savemodel", () => {
   setModel(inputValue("model"));
   const m = getStoredModel();
@@ -110,8 +141,8 @@ if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
   loadLocalModel(getLocalModel());
 }
 
-// The ⚙ button just reopens the connection card.
-onClick("settings", () => showOnboard(true));
+// The ⚙ button toggles the connection card — click again to dismiss it.
+onClick("settings", () => showOnboard((document.getElementById("onboard") as HTMLElement).hidden));
 
 // Optional MCP tool servers: several at once, each with an optional bearer
 // token, persisted and reconnected at boot.
@@ -208,7 +239,7 @@ async function send(textOverride?: string, wf?: { title: string; body: string })
   else userSay(text);
   if (getProvider() === "local") {
     if (!localReady()) {
-      note("My on-device brain is still warming up — give it a moment, then ask again.");
+      note("My on-device model is still warming up — give it a moment, then ask again.");
       return;
     }
   } else if (!hasKey()) {
