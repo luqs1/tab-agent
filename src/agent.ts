@@ -351,7 +351,11 @@ export async function runAgent(userText: string, maxTurns = 10) {
       // shared link undecodable. Everything else gets capped.
       if (name !== "make_workflow_link") out = clampToolOutput(out);
       done();
-      const sig = name + JSON.stringify(args);
+      // For malformed calls args is {}, so keying on it would collapse every
+      // bad payload for a tool into one signature — a model that resends a
+      // *different* still-invalid payload would be wrongly flagged a repeat.
+      // Key on the raw argument string in that case.
+      const sig = name + (badArgs !== null ? badArgs : JSON.stringify(args));
       const seen = (seenCalls.get(sig) ?? 0) + 1;
       seenCalls.set(sig, seen);
       if (seen > 1) out += "\n\n(You already ran exactly this and got this same result. Do NOT run it again — try a different approach.)";
