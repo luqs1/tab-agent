@@ -55,9 +55,9 @@ if (!connected()) showOnboard(true);
   if (LOCAL_MODELS.some((m) => m.id === getLocalModel())) sel.value = getLocalModel();
   else setLocalModel("");
   if (!gpuAvailable()) (document.getElementById("local-section") as HTMLElement).hidden = true;
-  // WebGPU existing isn't enough: some browsers (Safari; Brave with shields)
-  // clamp adapter limits below what the MLC kernels need. Probe and say so up
-  // front rather than letting the download fail at the end.
+  // WebGPU existing isn't enough: some browsers (Firefox, Safari, shielded
+  // Brave) clamp adapter limits below what the MLC kernels need. Probe and say
+  // so up front rather than letting the download fail at the end.
   else
     gpuUsable().then((ok) => {
       if (ok) return;
