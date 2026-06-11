@@ -96,10 +96,19 @@ onClick("savemodel", () => {
       const tooled = (data as any[])
         .filter((m) => (m.supported_parameters ?? []).includes("tools"))
         .sort((a, b) => a.id.localeCompare(b.id));
+      // Label: name · price per M tokens (in/out) · context window.
+      const perM = (v: string) => {
+        const n = parseFloat(v) * 1e6;
+        return n >= 100 ? `$${Math.round(n)}` : `$${+n.toFixed(2)}`;
+      };
+      const ctx = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k ctx` : `${n} ctx`);
       for (const m of tooled) {
         const o = document.createElement("option");
         o.value = m.id;
-        o.label = m.id.endsWith(":free") ? `${m.name} — free` : m.name;
+        const price = m.id.endsWith(":free")
+          ? "free"
+          : `${perM(m.pricing?.prompt ?? "0")}/${perM(m.pricing?.completion ?? "0")} per M`;
+        o.label = `${m.name} · ${price} · ${ctx(m.context_length ?? 0)}`;
         list.appendChild(o);
       }
     } catch {
