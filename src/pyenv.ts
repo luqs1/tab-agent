@@ -81,6 +81,41 @@ export async function writeUserFile(path: string, content: string): Promise<bool
   return true;
 }
 
+/** Write an uploaded file into /scratch (works on any browser, no folder share). */
+export async function uploadToScratch(file: File): Promise<string> {
+  await ready;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const path = "/scratch/" + file.name;
+  pyodide.FS.writeFile(path, bytes);
+  await syncMounts(); // persist to OPFS
+  return path;
+}
+
+/** Hand a sandbox file back to the user as a browser download. */
+export async function downloadSandboxFile(path: string): Promise<string> {
+  await ready;
+  let bytes: Uint8Array;
+  try {
+    bytes = pyodide.FS.readFile(path, { encoding: "binary" });
+  } catch {
+    return `No file at ${path} — create it first, then offer the download.`;
+  }
+  const name = path.split("/").filter(Boolean).pop() || "download";
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  // Firefox/Safari consume the blob asynchronously — revoking immediately can
+  // cancel the download before it starts. Defer cleanup.
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 10_000);
+  return `Sent "${name}" to the user's Downloads.`;
+}
+
 /** Run Python, return whatever it printed. Flushes writes back to disk. */
 export async function runPython(code: string): Promise<string> {
   await ready;

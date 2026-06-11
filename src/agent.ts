@@ -3,7 +3,7 @@
 // Uses the OpenAI chat-completions format. The browser calls OpenRouter directly
 // (it sends permissive CORS) — there is no backend.
 import { say, note, error, activity, thinking, streamingSay } from "./ui";
-import { runPython, userMount } from "./pyenv";
+import { runPython, userMount, downloadSandboxFile } from "./pyenv";
 import { runShell } from "./shell";
 import { callMcp, mcpTools } from "./mcp";
 import { loadSkills } from "./skills";
@@ -32,6 +32,9 @@ and describe the result simply.
 You have a Python sandbox (tool: python_exec) and a bash-like shell (tool: shell).
 Both tools share ONE filesystem; a file written by one is visible to the other.
 ${folders}
+Files move without a shared folder too: the user can upload files (they land in
+/scratch with the 📎 button), and you can hand any sandbox file back to them with
+download_file — use it to deliver a result when no folder is shared.
 Prefer python_exec for real work; use shell for quick file ops and pipelines.
 python_exec accepts ONLY Python source; shell accepts ONLY bash. If a tool call
 errors, change your approach — never repeat the identical call.
@@ -65,6 +68,19 @@ function builtinTools() {
         name: "shell",
         description: `Run a BASH command (echo/ls/grep/sed/cat/mkdir/…), never Python. Same filesystem as python_exec.`,
         parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "download_file",
+        description:
+          "Hand a file from the sandbox to the user as a browser download. Use this to give back a result they can't otherwise reach — e.g. when no folder is shared.",
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string", description: "sandbox path, e.g. /scratch/report.csv" } },
+          required: ["path"],
+        },
       },
     },
     {
@@ -119,6 +135,7 @@ function allTools() {
 async function dispatch(name: string, args: any): Promise<string> {
   if (name === "python_exec") return runPython(args.code);
   if (name === "shell") return runShell(args.command);
+  if (name === "download_file") return downloadSandboxFile(args.path);
   if (name === "make_workflow_link") {
     const url = await encodeWorkflowLink({ title: args.title, instructions: args.instructions });
     return `Link created (${url.length} chars — fragment stays on-device, never sent to any server):\n${url}\nShow it to the user as a markdown link they can copy.`;
@@ -129,6 +146,38 @@ async function dispatch(name: string, args: any): Promise<string> {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// A hung OpenRouter request must not freeze the turn: each fetch gets its own
+// timeout, and the whole run is cancellable from a Stop button. Worst case used
+// to be 4 fallback models × 2 attempts of unkillable hangs.
+const REQUEST_TIMEOUT_MS = 60_000;
+let runController: AbortController | null = null; // user-stop for the active run
+let stopped = false;
+
+/** True while a turn is in flight (the Stop button shows only then). */
+export function agentBusy(): boolean {
+  return runController !== null;
+}
+
+/** Abort the in-flight turn: kills the current request and ends the loop. */
+export function stopAgent() {
+  stopped = true;
+  runController?.abort();
+}
+
+// One signal that fires when EITHER input does (user stop OR per-request
+// timeout). AbortSignal.any isn't in every target, so combine by hand.
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  const ctrl = new AbortController();
+  for (const s of signals) {
+    if (s.aborted) {
+      ctrl.abort();
+      break;
+    }
+    s.addEventListener("abort", () => ctrl.abort(), { once: true });
+  }
+  return ctrl.signal;
+}
 
 // Free/local models run with small context windows; one `cat` of a big file or
 // a chatty script can blow the next completion. Cap each tool result, keeping
@@ -153,7 +202,7 @@ type Sink = { push(delta: string): void; reset(): void };
 // arrive and reassembles the final OpenAI-shaped response (content + tool_calls
 // rebuilt from their fragments) so the agent loop is unchanged. Returns an
 // { error } object on any failure, matching the non-streaming shape.
-async function streamOnce(key: string, model: string, messages: any[], sink: Sink): Promise<any> {
+async function streamOnce(key: string, model: string, messages: any[], sink: Sink, signal: AbortSignal): Promise<any> {
   let resp: Response;
   try {
     resp = await fetch(ENDPOINT, {
@@ -165,8 +214,10 @@ async function streamOnce(key: string, model: string, messages: any[], sink: Sin
         "X-Title": "tab.agent",
       },
       body: JSON.stringify({ model, messages, tools: allTools(), tool_choice: "auto", stream: true }),
+      signal,
     });
   } catch (e) {
+    if (signal.aborted) return { aborted: true }; // user Stop or per-request timeout
     return { error: { message: (e as Error).message } };
   }
 
@@ -179,7 +230,10 @@ async function streamOnce(key: string, model: string, messages: any[], sink: Sin
 
   // Some models/providers ignore stream:true and return a plain JSON completion.
   // Detect that and hand it back whole (the loop will render it after the fact).
+  // Reset first: a previous model may have streamed partial text into the sink,
+  // which would otherwise shadow this completion's content in the loop.
   if (!resp.headers.get("content-type")?.includes("text/event-stream")) {
+    sink.reset();
     return resp.json().catch((e) => ({ error: { message: (e as Error).message } }));
   }
 
@@ -193,7 +247,13 @@ async function streamOnce(key: string, model: string, messages: any[], sink: Sin
   let streamErr: any = null;
 
   for (;;) {
-    const { done, value } = await reader.read();
+    let done: boolean, value: Uint8Array | undefined;
+    try {
+      ({ done, value } = await reader.read());
+    } catch (e) {
+      if (signal.aborted) return { aborted: true }; // Stop or timeout mid-stream
+      return { error: { message: (e as Error).message } };
+    }
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     let nl: number;
@@ -240,14 +300,27 @@ async function streamOnce(key: string, model: string, messages: any[], sink: Sin
 
 // Free models get rate-limited. Try the user's model first, then fall through
 // the free fallbacks; retry each once on 429 before moving on. `sink` receives
-// streamed tokens (unused by the non-streaming on-device path).
-async function complete(key: string, messages: any[], sink: Sink): Promise<any> {
+// streamed tokens (unused by the non-streaming on-device path); `signal` is the
+// user-stop, combined per attempt with a request timeout.
+async function complete(key: string, messages: any[], sink: Sink, signal: AbortSignal): Promise<any> {
   if (getProvider() === "local") return localComplete(messages, allTools());
   const models = [getModel(), ...FALLBACK_MODELS.filter((m) => m !== getModel())];
   let last: any = { error: { message: "no models attempted" } };
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const resp = await streamOnce(key, model, messages, sink);
+      const timeout = new AbortController();
+      const t = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
+      let resp: any;
+      try {
+        resp = await streamOnce(key, model, messages, sink, anySignal([signal, timeout.signal]));
+      } finally {
+        clearTimeout(t);
+      }
+      if (resp.aborted) {
+        if (signal.aborted) return { stopped: true }; // user hit Stop — bail out entirely
+        // A timeout looks like a transient 5xx so it gets the one retry below.
+        resp = { error: { message: "That took too long, so I gave up on it.", code: 504 } };
+      }
       const code = resp.error?.code ?? resp.error?.status;
       if (!resp.error) return resp;
       last = resp;
@@ -270,6 +343,7 @@ async function complete(key: string, messages: any[], sink: Sink): Promise<any> 
 function describe(name: string, args: any): { label: string; detail?: string } {
   if (name === "python_exec") return { label: "doing a bit of work behind the scenes…", detail: args.code };
   if (name === "shell") return { label: "looking through the files…", detail: args.command };
+  if (name === "download_file") return { label: "saving that to your computer…", detail: args.path };
   if (name === "write_installer") return { label: "preparing a one-click setup file for you…", detail: args.script };
   if (name === "make_workflow_link") return { label: "packing that into a shareable link…", detail: args.instructions };
   return { label: `using ${name.replace(/^mcp__/, "")}…`, detail: JSON.stringify(args, null, 2) };
@@ -294,11 +368,21 @@ export async function runAgent(userText: string, maxTurns = 10) {
 
   const seenCalls = new Map<string, number>(); // small local models love repeating a failing call
 
+  stopped = false;
+  runController = new AbortController();
+  const signal = runController.signal;
+  try {
   for (let turn = 0; turn < maxTurns; turn++) {
     thinking(true);
     const stream = streamingSay();
-    const resp = await complete(key, messages, stream);
+    const resp = await complete(key, messages, stream, signal);
     thinking(false);
+
+    if (stopped || resp.stopped) {
+      stream.done(); // finalize whatever streamed before the stop
+      note("Okay — I've stopped.");
+      return;
+    }
 
     if (resp.error) {
       stream.reset();
@@ -336,6 +420,10 @@ export async function runAgent(userText: string, maxTurns = 10) {
     }
 
     for (const call of calls) {
+      if (stopped) {
+        note("Okay — I've stopped.");
+        return;
+      }
       const name = call.function.name;
       let args: any = {};
       try {
@@ -354,7 +442,10 @@ export async function runAgent(userText: string, maxTurns = 10) {
       } catch (e) {
         out = `[tool error] ${(e as Error).message ?? String(e)}`;
       }
-      out = clampToolOutput(out);
+      // make_workflow_link returns a #wf= URL that IS the payload — clamping it
+      // would replace the fragment's middle with the trim marker and make the
+      // shared link undecodable. Everything else gets capped.
+      if (name !== "make_workflow_link") out = clampToolOutput(out);
       done();
       const sig = name + JSON.stringify(args);
       const seen = (seenCalls.get(sig) ?? 0) + 1;
@@ -364,4 +455,7 @@ export async function runAgent(userText: string, maxTurns = 10) {
     }
   }
   note("That was a lot of steps, so I paused here — say “keep going” to continue.");
+  } finally {
+    runController = null;
+  }
 }

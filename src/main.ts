@@ -4,22 +4,26 @@ import {
   onClick, inputValue, showOnboard, showFolderChip,
 } from "./ui";
 import { asrSupported, asrReady, loadAsr, startDictation, stopDictation, dictating } from "./asr";
-import { ready, mountUserFolder, scratchPersists } from "./pyenv";
+import { ready, mountUserFolder, scratchPersists, uploadToScratch } from "./pyenv";
 import { shellCd } from "./shell";
 import {
   decodeWorkflowHash, workflowParams, fillParams,
   rememberWorkflow, recentWorkflows, type Workflow,
 } from "./wf";
-import { connectMcp, disconnectMcp } from "./mcp";
-import { runAgent } from "./agent";
+import { connectMcp, disconnectMcp, mcpServers } from "./mcp";
+import { runAgent, stopAgent } from "./agent";
 import {
   setKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
-  getMcpUrl, setMcpUrl, getModel, setModel, FALLBACK_MODELS,
+  getMcpServers, setMcpServers, getModel, setModel, getStoredModel, FALLBACK_MODELS,
 } from "./settings";
 
-// The free tier shifts: a saved model that's left our known-good list would
-// burn a failed call every turn, so drop it back to the default.
-if (!FALLBACK_MODELS.includes(getModel())) setModel("");
+// The free tier shifts: a saved FREE model that's left our known-good list
+// would burn a failed call every turn, so drop it back to the default. A
+// deliberately-chosen paid model (no :free suffix) is the user's call — leave it.
+{
+  const m = getModel();
+  if (m.endsWith(":free") && !FALLBACK_MODELS.includes(m)) setModel("");
+}
 import { LOCAL_MODELS, loadLocalModel, localReady, gpuAvailable } from "./local";
 
 // Point this at any browser-CORS-friendly MCP server.
@@ -67,6 +71,15 @@ onClick("savekey", () => {
   }
 });
 
+// Optional model override (paid keys can point at Claude/GPT/etc.); persisted,
+// blank falls back to the free default.
+(document.getElementById("model") as HTMLInputElement).value = getStoredModel();
+onClick("savemodel", () => {
+  setModel(inputValue("model"));
+  const m = getStoredModel();
+  note(m ? `Model set to ${m}.` : "Using the free default model.");
+});
+
 onClick("uselocal", async () => {
   const id = inputValue("localmodel");
   if (await loadLocalModel(id)) {
@@ -85,17 +98,42 @@ if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
 // The ⚙ button just reopens the connection card.
 onClick("settings", () => showOnboard(true));
 
-// Optional MCP tool server: runtime-configurable, persisted, reconnects at boot.
-(document.getElementById("mcpurl") as HTMLInputElement).value = getMcpUrl();
+// Optional MCP tool servers: several at once, each with an optional bearer
+// token, persisted and reconnected at boot.
+function renderMcpServers() {
+  const holder = document.getElementById("mcp-servers")!;
+  holder.innerHTML = "";
+  for (const s of mcpServers()) {
+    const chip = document.createElement("button");
+    chip.className = "ghost";
+    chip.textContent = `🔌 ${s.url}  ✕`;
+    chip.title = "Disconnect this server";
+    chip.addEventListener("click", async () => {
+      await disconnectMcp(s.url);
+      setMcpServers(getMcpServers().filter((x) => x.url !== s.url));
+      renderMcpServers();
+      note("Tool server removed.");
+    });
+    holder.appendChild(chip);
+  }
+}
+renderMcpServers();
+
 onClick("savemcp", async () => {
   const url = inputValue("mcpurl").trim();
-  setMcpUrl(url);
   if (!url) {
-    await disconnectMcp();
-    note("Tool server removed.");
+    note("Paste a server URL first.");
     return;
   }
-  await connectMcp(url);
+  const token = inputValue("mcptoken").trim();
+  await connectMcp(url, token || undefined);
+  if (mcpServers().some((s) => s.url === url)) {
+    // Connected OK — persist it (replacing any stale entry for the same url).
+    setMcpServers([...getMcpServers().filter((s) => s.url !== url), { url, token: token || undefined }]);
+    (document.getElementById("mcpurl") as HTMLInputElement).value = "";
+    (document.getElementById("mcptoken") as HTMLInputElement).value = "";
+    renderMcpServers();
+  }
 });
 
 // Folder sharing needs the File System Access API — Chrome/Edge only.
@@ -120,11 +158,33 @@ onClick("pick", async () => {
   }
 });
 
+// Upload fallback: works on any browser (Firefox/Safari can't share a folder).
+// Chosen files land in /scratch, where both python_exec and shell can see them.
+{
+  const fileInput = document.getElementById("fileinput") as HTMLInputElement;
+  onClick("attach", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    for (const file of Array.from(fileInput.files ?? [])) {
+      try {
+        const path = await uploadToScratch(file);
+        note(`📎 Uploaded “${file.name}” to ${path}.`);
+      } catch (e) {
+        error(`Couldn't upload “${file.name}”: ${(e as Error).message}`);
+      }
+    }
+    fileInput.value = ""; // let the same file be re-uploaded
+  });
+}
+
 let busy = false;
 async function send(textOverride?: string, wf?: { title: string; body: string }) {
   const box = document.getElementById("msg") as HTMLTextAreaElement;
   const text = (textOverride ?? box.value).trim();
-  if (!text || busy) return;
+  if (!text) return;
+  if (busy) {
+    note("I'm still on the last thing — give me a moment, then send it again. (Or hit ⏹ Stop.)");
+    return;
+  }
   if (!textOverride) {
     box.value = "";
     box.style.height = "auto";
@@ -144,6 +204,7 @@ async function send(textOverride?: string, wf?: { title: string; body: string })
   busy = true;
   status("think");
   thinking(true);
+  showStop(true);
   try {
     await runAgent(text);
   } catch (e) {
@@ -152,8 +213,19 @@ async function send(textOverride?: string, wf?: { title: string; body: string })
     thinking(false);
     status("ready");
     busy = false;
+    showStop(false);
   }
 }
+
+// While a turn is in flight, swap Send for a Stop button that aborts it
+// (kills the in-flight request and ends the loop).
+const stopBtn = document.getElementById("stop") as HTMLButtonElement;
+const sendBtn = document.getElementById("send") as HTMLButtonElement;
+function showStop(on: boolean) {
+  stopBtn.hidden = !on;
+  sendBtn.hidden = on;
+}
+onClick("stop", () => stopAgent());
 
 onClick("send", () => send());
 
@@ -359,8 +431,10 @@ if (location.protocol === "file:") {
   status("ready");
   if (!scratchPersists)
     note("Heads up: running from a local file, so my scratch notes vanish on reload. Your real folder is unaffected.");
-  const mcp = getMcpUrl() || MCP_URL;
-  if (mcp) await connectMcp(mcp);
+  // The build-time default server (if any), then every saved one.
+  if (MCP_URL && !getMcpServers().some((s) => s.url === MCP_URL)) await connectMcp(MCP_URL);
+  for (const s of getMcpServers()) await connectMcp(s.url, s.token);
+  renderMcpServers();
 })();
 
 // ---- update check: compare our build id against the freshly served page ----
