@@ -30,16 +30,59 @@ import { LOCAL_MODELS, loadLocalModel, localReady, gpuAvailable, gpuUsable } fro
 const MCP_URL = import.meta.env.VITE_MCP_URL;
 
 const WELCOME =
-  "Hi! I'm **tab.agent** 👋 I live in this tab and can help you " +
-  "do real things on your computer, without installing anything new. \n\n" +
+  "Hi! I'm **tab.agent** 👋 I'm just a file running on your browser and can help you " +
+  "do useful things on your computer, without installing anything new. \n\n" +
   "Use **📁 Share a folder** to let me work with your real files, " +
   "then just tell me what you need to do.";
+
+// The app is one file and can hand itself out (footer's "Save a copy of me",
+// and the word "file" in the welcome line). On file:// a saved copy is frozen
+// at its build, so links point home for the freshest version instead.
+const HOME_URL = "https://luqs1.github.io/tab-agent/";
+
+async function downloadSelf() {
+  try {
+    const html = await fetch(location.href).then((r) => r.text());
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    a.download = "tab.agent.html";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    note("Saved! Anyone can double-click that file to get their own tab.agent.");
+  } catch {
+    note("Couldn't grab my own file here — you can share this page's link instead.");
+  }
+}
+
+// say(WELCOME), then make the word "file" hand out the app itself — a download
+// on http(s), a link home from a frozen file:// copy (same rules as the footer).
+function sayWelcome() {
+  say(WELCOME);
+  const el = [...document.querySelectorAll(".msg.agent")].pop();
+  if (!el) return;
+  el.innerHTML = el.innerHTML.replace(
+    "just a file",
+    'just a <a href="#" class="self-link" style="color:inherit">file</a>'
+  );
+  const a = el.querySelector("a.self-link") as HTMLAnchorElement | null;
+  if (!a) return;
+  if (location.protocol === "file:") {
+    a.href = HOME_URL;
+    a.target = "_blank";
+    a.rel = "noreferrer";
+  } else {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      downloadSelf();
+    });
+  }
+}
 
 const connected = () => hasKey() || (getProvider() === "local" && getLocalModel() !== "");
 
 // A workflow link should open straight onto its consent card, not the intro.
 const WF_LINK = location.hash.startsWith("#wf=");
-if (!WF_LINK) say(WELCOME);
+if (!WF_LINK) sayWelcome();
 if (!connected()) showOnboard(true);
 
 // The on-device option: populate the model choices; hide it without WebGPU.
@@ -397,7 +440,7 @@ onClick("wf-skip", () => {
   const fromLink = wfFromLink;
   closeWf();
   note("Okay, ignored.");
-  if (fromLink) say(WELCOME);
+  if (fromLink) sayWelcome();
 });
 
 onClick("wf-run", () => {
@@ -444,7 +487,7 @@ renderRecents();
 (async () => {
   const wf = WF_LINK ? await decodeWorkflowHash(location.hash).catch(() => null) : null;
   if (!wf) {
-    if (WF_LINK) say(WELCOME); // malformed link — fall back to the normal intro
+    if (WF_LINK) sayWelcome(); // malformed link — fall back to the normal intro
     return;
   }
   offerWorkflow(wf, true);
@@ -507,10 +550,8 @@ renderRecents();
   });
 }
 
-// ---- save-a-copy: the whole app is one file, so it can hand itself out ----
-// A downloaded copy is frozen at whatever build it was saved from, so on
-// file:// the footer points home for the freshest version instead.
-const HOME_URL = "https://luqs1.github.io/tab-agent/";
+// ---- save-a-copy footer (downloadSelf/HOME_URL live up top, shared with the
+// welcome line's "file" link) ----
 if (location.protocol === "file:") {
   const a = document.getElementById("savecopy") as HTMLAnchorElement;
   a.textContent = "Go to " + HOME_URL.replace(/^https:\/\//, "").replace(/\/$/, "");
@@ -519,19 +560,7 @@ if (location.protocol === "file:") {
   a.rel = "noreferrer";
   document.getElementById("savecopy-tail")!.textContent = " for the most up-to-date version of me.";
 } else {
-  onClick("savecopy", async () => {
-    try {
-      const html = await fetch(location.href).then((r) => r.text());
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-      a.download = "tab.agent.html";
-      a.click();
-      URL.revokeObjectURL(a.href);
-      note("Saved! Anyone can double-click that file to get their own tab.agent.");
-    } catch {
-      note("Couldn't grab my own file here — you can share this page's link instead.");
-    }
-  });
+  onClick("savecopy", () => downloadSelf());
 }
 
 (async () => {
