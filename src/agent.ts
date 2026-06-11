@@ -322,10 +322,14 @@ export async function runAgent(userText: string, maxTurns = 10) {
       }
       const name = call.function.name;
       let args: any = {};
+      let badArgs: string | null = null;
       try {
         args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
       } catch {
-        args = {};
+        // Don't silently run with {} — that hides the real problem (e.g.
+        // runPython(undefined)). Tell the model its arguments didn't parse so
+        // it can resend them; small local models especially need this nudge.
+        badArgs = call.function.arguments ?? "";
       }
       const { label, detail } = describe(name, args);
       const done = activity(label, detail);
@@ -333,17 +337,25 @@ export async function runAgent(userText: string, maxTurns = 10) {
       // the error into a tool result the model can react to, and always clear
       // the spinner. Then cap the result to protect the context window.
       let out: string;
-      try {
-        out = await dispatch(name, args);
-      } catch (e) {
-        out = `[tool error] ${(e as Error).message ?? String(e)}`;
+      if (badArgs !== null) {
+        out = `[bad arguments] The arguments for ${name} were not valid JSON, so the call didn't run. You sent: ${badArgs}\nResend the call with valid JSON arguments.`;
+      } else {
+        try {
+          out = await dispatch(name, args);
+        } catch (e) {
+          out = `[tool error] ${(e as Error).message ?? String(e)}`;
+        }
       }
       // make_workflow_link returns a #wf= URL that IS the payload — clamping it
       // would replace the fragment's middle with the trim marker and make the
       // shared link undecodable. Everything else gets capped.
       if (name !== "make_workflow_link") out = clampToolOutput(out);
       done();
-      const sig = name + JSON.stringify(args);
+      // For malformed calls args is {}, so keying on it would collapse every
+      // bad payload for a tool into one signature — a model that resends a
+      // *different* still-invalid payload would be wrongly flagged a repeat.
+      // Key on the raw argument string in that case.
+      const sig = name + (badArgs !== null ? badArgs : JSON.stringify(args));
       const seen = (seenCalls.get(sig) ?? 0) + 1;
       seenCalls.set(sig, seen);
       if (seen > 1) out += "\n\n(You already ran exactly this and got this same result. Do NOT run it again — try a different approach.)";
