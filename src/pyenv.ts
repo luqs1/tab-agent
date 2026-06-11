@@ -101,11 +101,18 @@ export async function downloadSandboxFile(path: string): Promise<string> {
     return `No file at ${path} — create it first, then offer the download.`;
   }
   const name = path.split("/").filter(Boolean).pop() || "download";
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([bytes as BlobPart]));
+  a.href = url;
   a.download = name;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  // Firefox/Safari consume the blob asynchronously — revoking immediately can
+  // cancel the download before it starts. Defer cleanup.
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 10_000);
   return `Sent "${name}" to the user's Downloads.`;
 }
 

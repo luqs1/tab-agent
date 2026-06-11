@@ -338,7 +338,10 @@ export async function runAgent(userText: string, maxTurns = 10) {
       } catch (e) {
         out = `[tool error] ${(e as Error).message ?? String(e)}`;
       }
-      out = clampToolOutput(out);
+      // make_workflow_link returns a #wf= URL that IS the payload — clamping it
+      // would replace the fragment's middle with the trim marker and make the
+      // shared link undecodable. Everything else gets capped.
+      if (name !== "make_workflow_link") out = clampToolOutput(out);
       done();
       const sig = name + JSON.stringify(args);
       const seen = (seenCalls.get(sig) ?? 0) + 1;
