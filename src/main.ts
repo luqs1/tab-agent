@@ -59,35 +59,35 @@ if (!connected()) showOnboard(true);
 
 onClick("getkey", () => window.open("https://openrouter.ai/keys", "_blank"));
 
-// Reflect saved-key state: rather than re-render the secret into the password
-// field, show a "✓ Key saved (sk-or-…last4)" chip with a Change button that
-// reveals an empty input. The key already lives in localStorage, so this is no
-// new exposure — it just communicates "you're set up" without showing the key.
+// Saved-key state, in place: the same row signals "you're set up" through the
+// placeholder ("✓ Key saved (…last4)") and the button label (Connect ⇄ Change),
+// so the card doesn't grow and the secret is never re-rendered into the DOM.
+const keyEl = document.getElementById("key") as HTMLInputElement;
+const keyBtn = document.getElementById("savekey") as HTMLButtonElement;
 function reflectKeyState() {
-  const entry = document.getElementById("key-entry") as HTMLElement;
-  const saved = document.getElementById("key-saved") as HTMLElement;
-  if (hasKey()) {
-    const k = getKey();
-    const tail = k.length > 4 ? k.slice(-4) : k;
-    document.getElementById("key-saved-label")!.textContent = `Key saved (sk-or-…${tail})`;
-    entry.hidden = true;
-    saved.hidden = false;
+  if (keyEl.value) {
+    keyBtn.textContent = "Connect"; // something typed — saving is the action again
+  } else if (hasKey()) {
+    const tail = getKey().slice(-4);
+    keyEl.placeholder = `✓ Key saved (sk-or-…${tail}) — paste a new one to replace`;
+    keyBtn.textContent = "Change";
   } else {
-    entry.hidden = false;
-    saved.hidden = true;
+    keyEl.placeholder = "Paste your key here (it starts with sk-or-…)";
+    keyBtn.textContent = "Connect";
   }
 }
 reflectKeyState();
-onClick("changekey", () => {
-  (document.getElementById("key-entry") as HTMLElement).hidden = false;
-  (document.getElementById("key-saved") as HTMLElement).hidden = true;
-  (document.getElementById("key") as HTMLInputElement).focus();
-});
+keyEl.addEventListener("input", reflectKeyState);
 
 onClick("savekey", () => {
+  if (!keyEl.value.trim() && hasKey()) {
+    keyEl.focus(); // "Change" with nothing typed — invite a paste, change nothing
+    return;
+  }
   setKey(inputValue("key"));
   if (hasKey()) {
     setProvider("openrouter");
+    keyEl.value = "";
     reflectKeyState();
     showOnboard(false);
     note("Connected! You're all set.");
@@ -224,7 +224,7 @@ async function send(textOverride?: string, wf?: { title: string; body: string })
   else userSay(text);
   if (getProvider() === "local") {
     if (!localReady()) {
-      note("My on-device brain is still warming up — give it a moment, then ask again.");
+      note("My on-device model is still warming up — give it a moment, then ask again.");
       return;
     }
   } else if (!hasKey()) {
