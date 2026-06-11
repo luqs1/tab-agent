@@ -44,7 +44,9 @@ tools (brew, system pip, arbitrary binaries) yourself. When a task needs that, d
 NOT pretend you can. Instead call write_installer to generate a script the user
 runs once to grant that access, and briefly tell them what it will do. Keep the
 script minimal, idempotent, and safe. Do everything else (reading/writing their
-files, analysis, scaffolding) directly in the sandbox.${loadSkills()}`;
+files, analysis, scaffolding) directly in the sandbox.${getProvider() === "local" ? "" : loadSkills()}`;
+  // On-device, prefill runs at tens of tokens/sec — every KB of prompt costs
+  // seconds before the first token, so skills are left out of the local path.
 }
 
 // Built-in tools in OpenAI function-calling format.
@@ -413,9 +415,16 @@ export async function runAgent(userText: string, maxTurns = 10) {
 
     const calls = msg.tool_calls ?? [];
     if (calls.length === 0) {
-      // Some (especially local) models go quiet after acting; don't end on silence.
-      if (!msg.content && seenCalls.size > 0)
-        note("I've finished working on that — ask me to double-check the result if you like.");
+      // NEVER end a turn in silence. Measured failure on-device: a misfired
+      // generation (unparseable tool-call text) returns no content and no
+      // calls — the user watched dots for 5 minutes and then got nothing.
+      if (!msg.content) {
+        note(
+          seenCalls.size > 0
+            ? "I've finished working on that — ask me to double-check the result if you like."
+            : "Hmm, I didn't manage to put an answer together that time — mind asking again, maybe a bit differently?"
+        );
+      }
       return;
     }
 

@@ -152,12 +152,23 @@ function foldSystemIntoUser(messages: any[]): any[] {
   return rest;
 }
 
+// Decode runs ~19 tok/s on an 8B model: an uncapped misfire (rambling,
+// unparseable tool-call text) can burn many minutes producing output that
+// gets discarded. 600 tokens is plenty for a reply or a tool call and bounds
+// the damage to ~30s of decode.
+const LOCAL_MAX_TOKENS = 600;
+
 /** OpenAI-shaped completion against the local engine. Mirrors the remote response shape. */
 export async function localComplete(messages: any[], tools: any[]): Promise<any> {
   if (!engine) return { error: { message: "on-device AI not loaded yet" } };
   const folded = foldSystemIntoUser(messages);
   try {
-    return await engine.chat.completions.create({ messages: folded, tools, tool_choice: "auto" });
+    return await engine.chat.completions.create({
+      messages: folded,
+      tools,
+      tool_choice: "auto",
+      max_tokens: LOCAL_MAX_TOKENS,
+    });
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
     console.warn("[local] completion error:", msg);
@@ -166,7 +177,7 @@ export async function localComplete(messages: any[], tools: any[]): Promise<any>
     if (/not supported for ChatCompletionRequest\.tools/i.test(msg)) {
       note("Heads up: this on-device model can't use my file tools — I can chat, but not act on your files.");
       try {
-        return await engine.chat.completions.create({ messages: folded });
+        return await engine.chat.completions.create({ messages: folded, max_tokens: LOCAL_MAX_TOKENS });
       } catch (e2) {
         return { error: { message: (e2 as Error).message } };
       }
