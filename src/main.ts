@@ -80,6 +80,34 @@ onClick("savemodel", () => {
   note(m ? `Model set to ${m}.` : "Using the free default model.");
 });
 
+// Autocomplete the model field from OpenRouter's catalogue — nobody remembers
+// those ids. Fetched once, lazily, on first focus (no cost if never opened);
+// filtered to tool-capable models since a model without tools can't act.
+// Offline / fetch failure just leaves the field as free-text entry.
+{
+  const el = document.getElementById("model") as HTMLInputElement;
+  let loaded = false;
+  el.addEventListener("focus", async () => {
+    if (loaded) return;
+    loaded = true;
+    try {
+      const { data } = await fetch("https://openrouter.ai/api/v1/models").then((r) => r.json());
+      const list = document.getElementById("model-list") as HTMLDataListElement;
+      const tooled = (data as any[])
+        .filter((m) => (m.supported_parameters ?? []).includes("tools"))
+        .sort((a, b) => a.id.localeCompare(b.id));
+      for (const m of tooled) {
+        const o = document.createElement("option");
+        o.value = m.id;
+        o.label = m.id.endsWith(":free") ? `${m.name} — free` : m.name;
+        list.appendChild(o);
+      }
+    } catch {
+      loaded = false; // let a later focus retry
+    }
+  });
+}
+
 onClick("uselocal", async () => {
   const id = inputValue("localmodel");
   if (await loadLocalModel(id)) {
