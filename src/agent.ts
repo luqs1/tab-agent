@@ -238,7 +238,7 @@ async function complete(key: string, messages: any[], signal: AbortSignal): Prom
       }
       // Anything else — model withdrawn, 404, repeated 429 — try the next model.
       // The free tier shifts constantly; a dead default mustn't kill the agent.
-      note("That model isn't answering — switching to a backup brain…");
+      note("That model isn't answering — switching to a backup model…");
       break;
     }
   }
@@ -293,7 +293,7 @@ export async function runAgent(userText: string, maxTurns = 10) {
       error(
         resp.error.code === 401
           ? "That key didn't work — open ⚙ and check it was pasted in full."
-          : "I hit a snag talking to my brain: " + detail
+          : "I hit a snag talking to my model: " + detail
       );
       return;
     }
