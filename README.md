@@ -59,7 +59,7 @@ shell, and python still work. Downloaded copies are frozen at their build, so on
 
 **A saved copy is not actually offline.** The single file is the *app*, not its
 runtimes: Pyodide (python/shell), WebLLM (on-device model), and Parakeet
-(dictation) are each fetched from a CDN on first use, and the OpenRouter brain
+(dictation) are each fetched from a CDN on first use, and the OpenRouter model
 is a remote API. So a saved copy still needs the internet — open it on a plane
 with no connection and it can't run python/shell, load a model, or chat.
 Bundling Pyodide for genuine offline use is a possible future step.

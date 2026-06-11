@@ -1,6 +1,6 @@
 // On-device AI via WebLLM (MLC): the model runs on the user's GPU, in the tab.
 // Speaks the same OpenAI chat-completions format (including structured
-// tool_calls), so the agent loop doesn't know or care which brain it's using.
+// tool_calls), so the agent loop doesn't know or care which model it's using.
 //
 // The library (and the model weights) load lazily from CDN only when the user
 // opts in — the shipped single file stays small. Weights are cached by the
