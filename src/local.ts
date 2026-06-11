@@ -27,11 +27,12 @@ export function gpuAvailable(): boolean {
   return "gpu" in navigator;
 }
 
-// The MLC kernels need 10 storage buffers per shader stage. Capable GPUs can
-// still fail here when the BROWSER clamps adapter limits to the WebGPU spec
-// minimum of 8 — Safari does (anti-fingerprinting), as does Brave with
-// shields — seen in practice on an Apple M4 in Safari. Chrome/Edge expose the
-// hardware's real limits.
+// The MLC kernels need 10 storage buffers per shader stage, but the WebGPU
+// spec's BASE limit is 8 and several browsers clamp the adapter to it rather
+// than report real hardware capability (anti-fingerprinting) — seen in
+// practice on an Apple M4 in Firefox; Safari and shielded Brave behave the
+// same way. Chrome/Edge expose the hardware's actual limits. Spec discussion
+// on raising the base: gpuweb/gpuweb#4235.
 const MIN_STORAGE_BUFFERS = 10;
 
 /** Whether this browser's WebGPU adapter can actually run the MLC kernels. */
