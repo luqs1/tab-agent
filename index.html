@@ -528,7 +528,8 @@
         <p style="font-size:14px;margin-top:12px">Got OpenRouter credit? Pick any model
         (e.g. <code>anthropic/claude-sonnet-4.6</code> or <code>openai/gpt-5</code>) — leave it blank to use the free default.</p>
         <div class="step">
-          <input id="model" placeholder="Model id (optional)" style="flex:1;min-width:200px" />
+          <input id="model" list="model-list" placeholder="Model id (optional)" style="flex:1;min-width:200px" />
+          <datalist id="model-list"></datalist>
           <button id="savemodel" class="ghost">Set model</button>
         </div>
         <div id="local-section">

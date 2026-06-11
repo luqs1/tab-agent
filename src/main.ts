@@ -126,6 +126,43 @@ onClick("savemodel", () => {
   note(m ? `Model set to ${m}.` : "Using the free default model.");
 });
 
+// Autocomplete the model field from OpenRouter's catalogue — nobody remembers
+// those ids. Fetched once, lazily, on first focus (no cost if never opened);
+// filtered to tool-capable models since a model without tools can't act.
+// Offline / fetch failure just leaves the field as free-text entry.
+{
+  const el = document.getElementById("model") as HTMLInputElement;
+  let loaded = false;
+  el.addEventListener("focus", async () => {
+    if (loaded) return;
+    loaded = true;
+    try {
+      const { data } = await fetch("https://openrouter.ai/api/v1/models").then((r) => r.json());
+      const list = document.getElementById("model-list") as HTMLDataListElement;
+      const tooled = (data as any[])
+        .filter((m) => (m.supported_parameters ?? []).includes("tools"))
+        .sort((a, b) => a.id.localeCompare(b.id));
+      // Label: name · price per M tokens (in/out) · context window.
+      const perM = (v: string) => {
+        const n = parseFloat(v) * 1e6;
+        return n >= 100 ? `$${Math.round(n)}` : `$${+n.toFixed(2)}`;
+      };
+      const ctx = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k ctx` : `${n} ctx`);
+      for (const m of tooled) {
+        const o = document.createElement("option");
+        o.value = m.id;
+        const price = m.id.endsWith(":free")
+          ? "free"
+          : `${perM(m.pricing?.prompt ?? "0")}/${perM(m.pricing?.completion ?? "0")} per M`;
+        o.label = `${m.name} · ${price} · ${ctx(m.context_length ?? 0)}`;
+        list.appendChild(o);
+      }
+    } catch {
+      loaded = false; // let a later focus retry
+    }
+  });
+}
+
 onClick("uselocal", async () => {
   const id = inputValue("localmodel");
   if (await loadLocalModel(id)) {
