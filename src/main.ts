@@ -126,8 +126,33 @@ if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
   loadLocalModel(getLocalModel());
 }
 
-// The ⚙ button toggles the connection card — click again to dismiss it.
-onClick("settings", () => showOnboard((document.getElementById("onboard") as HTMLElement).hidden));
+// The ⚙ button toggles the card — click again to dismiss it. Onboarding and
+// settings are the same card in two modes: unconnected it's the guided "get
+// a brain" flow; connected it opens as plain Settings with the onboarding
+// copy hidden (CSS .settings-mode) and a matching title.
+function reflectSettingsMode() {
+  const card = document.getElementById("onboard") as HTMLElement;
+  card.classList.toggle("settings-mode", connected());
+  document.getElementById("onboard-title")!.textContent = connected()
+    ? "Settings"
+    : "One quick thing before we start";
+}
+reflectSettingsMode();
+onClick("settings", () => {
+  reflectSettingsMode();
+  showOnboard((document.getElementById("onboard") as HTMLElement).hidden);
+});
+
+// The 📦 button toggles the library (MCP tool servers + workflow history) —
+// content rather than configuration, so it lives outside settings.
+onClick("library-btn", () => {
+  const card = document.getElementById("library") as HTMLElement;
+  card.hidden = !card.hidden;
+  if (!card.hidden) {
+    document.getElementById("chat")!.appendChild(card); // keep it in conversation flow
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+});
 
 // Optional MCP tool servers: several at once, each with an optional bearer
 // token, persisted and reconnected at boot.
@@ -344,7 +369,7 @@ onClick("wf-run", () => {
   });
 });
 
-// The last few workflows the user ran, re-offerable from the ⚙ card.
+// The last few workflows the user ran, re-offerable from the 📦 library.
 function renderRecents() {
   const recents = recentWorkflows();
   (document.getElementById("recent-section") as HTMLElement).hidden = recents.length === 0;
@@ -355,7 +380,7 @@ function renderRecents() {
     b.className = "ghost";
     b.textContent = "📦 " + wf.title;
     b.addEventListener("click", () => {
-      showOnboard(false);
+      (document.getElementById("library") as HTMLElement).hidden = true;
       offerWorkflow(wf, false);
     });
     holder.appendChild(b);
