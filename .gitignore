@@ -5,3 +5,6 @@ dist/
 .env.local
 *.log
 .wrangler/
+
+# vite dep-optimizer cache (appears when the dev server runs from the repo root)
+.vite/
