@@ -83,7 +83,7 @@ a `file://` copy.
 
 ## Golden workflows
 
-Three ready-made links — open one, read the card, click Run:
+Ready-made links — open one, read the card, click Run:
 
 - **[Install Homebrew](https://luqs1.github.io/tab-agent/#wf=XVLbatwwEP2VgxqaBGKbTd9cCPQGKRQCTR8NRSvProbIIyON19leoE_9gNIvzJcUebMJ9E3SSOeq72Zn2tWFUdOaj5LVhoDrONA60WwuDJvWvMD_g046-eIJU6aE2YrmpxHO1BMG625uMVp3Z7dlJ3ZL6Rx8wKG-LgirGm8T0ybsQfdjsCyYvdXTDLuOk0IjvB1Hkhb7OJ2GAG-lh3oaYBGFKuWBkEmnERsOBPVWjyTPki5QnklUz7JFmiRjEuVQkPaIIwlYF9hMYUe57uSyxrtieE6s9PUoO2Fm9RA7EDrzeFr5Yyhm4aF76zTsoZ4zsks8alvc8gYuDkO5Uu2wRHXV9LRrZAoBl1cvV6-LBukEIOcjOvOUKWfYkMj2--cIW5ycLcOq2lHKHAU_4Mn2qFbnnemEQqYC1qxZmrXNHpVDZ07O3JQCqk2-_QSvOua2aZKd6y2rn9alUhdFSbR2cWiOGppH4ub6w5v3x02d_UK14eLwVY3PFGyxTnCB3V213lfLoqS-SE-TU46SkXkYw_5QTSKb85RKfzQcSnz-RJ2ZhHsS5Q1Tj552FOJIqTMYUxxGLenQ_UhOqcfDr79IvPX6yPvw-w9uloYzfJwPldtJfUz8jcBam5__AA)** — the agent hands you a click-to-run
   installer for the macOS package manager (idempotent; safe to re-run).
@@ -92,6 +92,10 @@ Three ready-made links — open one, read the card, click Run:
 - **[Description → draw.io diagram](https://luqs1.github.io/tab-agent/#wf=dVTBbhMxEP2VkXugldJNU6BCSTcIFVohVHFoEZeV0GQ9G1t1PIs9m01VlSMfwCfyJcjepAQQN3s8b-a98bMf1FpNJyMlaqpuu-ABQVOsg23FsgfrhVMoYF9YBm1xGXClRsqqqTqAa7yjf48rX_mLQCj5bIhBE3gFYmzcrz9NqQ8PvUGBaLhzGsTQEyYa7l8_PqakSQGfOdwBd5JTFryhCOgHAIbAfYQFSU_kU-ipIe33Kyp_WsCnaP0S2nsx7L_QhuoR9MFmtmt0Vj_paayjKaCH89UmredQsxe0PuHZE5xvmc6ht2K2mVcBW3PNmtz8PDDLvID3vnadpkxHeoZAXzsbSENNzkU4tBoqdVKpUVaUd5NKDUVbDORlOD8q4I3WQFibNAHANAJYbS7IOVhTENqUA3RAlXt1otw7gkoF7rwmXU5mvbFCNy3WVPYB25mRlSsns8Y6d8GOQ3nQNM1pXc-iBL6jbUyfLc5ens0qlbnm9lfEK5JwD4e91WJgcnYyAkN2aQTSEmNZqeU2qVJHI3Bodb5LR40cCx-HnDwG4TZtFyzCq4H4t1cn7QaW2MY99fnG_9RPekn_V89dqGksGJYkYPXgnd1MEvQmrUsOYnjJHt27XWz2e2KptOtivuWd5kAOxa53rf_SOp4XlX9ewA2uCawkxlvPFMlllsFmv0IXKTyLEA0mXzTsNAWwTbaZ3cVHwGIo9DZSwo1jHVBqU1T-RQG3aQi7UtAbCoPhknNTieGxoCQa3JKPgAJGpI3T8RjbttgSi4UngcPLBPv5_Qd8bMnDZXpNafeW1ramowI-ELW5Pm1ahx7zfyGc_R3JC_maYqEefwE)** — type what the diagram
   should show; the agent writes a `.drawio` file into your shared folder, ready
   to open at app.diagrams.net.
+- **[Clone a public GitHub repo](https://luqs1.github.io/tab-agent/#wf=lVTLbtxGEPyVAnPwLrImpcinNYxAlmVLB2sNeYMgwAJGk2wuGxrOEDNNUYwgIB-RL8yXBDP7kBLEh9zI6XdVdT9m99nydJFptswujLMMQj-URip8Er0aSnjuXbbIJFtmP-D7Lhu7sReun6CthP-wB1HnJ4hVB4JxFRk0ztTslzH08fGF08yNln1hqWM4j61oO5R55ToYsXfzp6cYcZrjA3u5Z6x-vbm8LW7OP1-i8a6Dtgyx_aCYBfXSg-yEVrUPy6J4Tlag99zIwwL5VhRhaNKP8-AH9YSetJ3nG_tTjl-C2C36SVtnv_EDV5ilSv3kaqk5j8khXe-8op8a1qp9C493oJHk-DQbvJm_RU1KR5PPy0k5zObz5cYCeI1Pl-tjs9RL_qLhBFHxYlyyNTxTjZobGox-Kz3Zqs2xsnhz8mYBfugNiYW2pHDWTAdmUiqMzt-hZc8pU1DX70PPFgfuJMCT8msjnWhE4a8__kSgCcHtgobtloNC_RSttI3lDCn7_P8PFNkp1DOH4v3t-c3F1c-eq8EHued3p6kyW_XCAaNoC516xiYrjSs3Gchzor4RwyHHdYNNpn6wFSnXmyxOon7gBUbye0Sie-wh2ZyDIb9lqEMVldwMxkzPyOzHuW5iWITMMzqXipLF2cnJrvICFO5S5iGwR8lN9KmcVbGD2O0hzwcOKpZUnF0e3V8FhJY81_vdwI5naRD3Tg7WBVzsYZTAKELlSas2eea48EzKCENZi-dKXYKLAixzzfWh-scoSDBVLSJ8u8U5sORp3LMUe4qts9VE2AuqdgQVX87XVzH9-9_Wl18xSxCgowkloxRLfponCEcvyhDFYONcceD6GYFdW9efv6xu1-c36yVqh5vVGqTKXa_xBCzwu_RF5Wo2LirejTZ-hMW_TkRPW0baNw5JMrFU6d2Y2DCuugvxqcPsYnX7dZ5j3TL-qUv8iO9CgJ7Eg0p3n_iIydNeeTdokoKmrQr5xp7l-ChWQotygrIxcUGOwhiTiI6ChSFbR2ZbN6KLF2uM9sr1El8jhHvJSoiFCcFSH1qncEmRaemCYsfLcfJ42loJu-OrgU2D2nGwrxSV6xhknN3m2dPf)** — paste an `owner/name` and the agent
+  copies the repo's files into your folder, right in the tab — no git needed.
+  (A snapshot of the default branch via api.github.com + raw.githubusercontent.com —
+  the only CORS-open route; git/codeload zips are browser-blocked.)
 
 Links are minted by `scripts/make-links.ts` (or ask the agent to make one).
 

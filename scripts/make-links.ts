@@ -41,6 +41,24 @@ fi
 
 3. Relay the click-by-click run instructions simply, reassure them about the macOS security prompt, and finish by telling them: open the Terminal app and type opencode to start it.`,
   ],
+  clonerepo: [
+    "Clone a public GitHub repo",
+    `# Clone a public GitHub repo
+
+Copy this public GitHub repository into a local folder:
+
+{{repository (owner/name or github.com link)}}
+
+1. Derive OWNER/NAME from the input (strip any https://github.com/ prefix, .git suffix, or extra path).
+2. Using python_exec (from pyodide.http import pyfetch; r = await pyfetch(url); data = await r.bytes()):
+   - GET https://api.github.com/repos/OWNER/NAME and read default_branch. On 404, explain that only public repos work here and stop. On 403, GitHub is rate-limiting — say so and suggest trying again later.
+   - GET https://api.github.com/repos/OWNER/NAME/git/trees/BRANCH?recursive=1 — entries with type "blob" are the files. If "truncated" is true, warn that the repo is too large to copy fully and stop.
+   - If there are more than 300 files, ask the user before continuing.
+   - Destination: the user's shared folder /NAME if one is shared, otherwise /scratch/NAME. Create subdirectories as needed.
+   - Fetch each blob from https://raw.githubusercontent.com/OWNER/NAME/BRANCH/PATH as BYTES (files may be binary) and write it under the destination.
+   IMPORTANT: do NOT attempt git, zip/codeload downloads, or github.com page fetches — the browser blocks them (CORS). The api.github.com + raw.githubusercontent.com pair above is the only route that works.
+3. Finish by telling the user where the files landed, how many were copied, and that this is a snapshot of the latest BRANCH — the git history itself doesn't come along.`,
+  ],
   drawio: [
     "Turn a description into a draw.io diagram",
     `# Make a draw.io diagram
