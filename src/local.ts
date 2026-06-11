@@ -51,6 +51,24 @@ async function lib() {
   return webllm;
 }
 
+// The engine must NOT run on the main thread: tokenization, sampling, the JS
+// glue between every token, and shader-pipeline compilation during load all
+// block the UI — in practice the whole tab froze during local generation.
+// WebLLM ships a worker engine for exactly this. The app is a single file with
+// WebLLM CDN-loaded, so the worker is built from a Blob whose module code
+// imports the handler from the same pinned URL (a blob worker inherits our
+// origin; module imports from the CDN work inside it).
+let worker: Worker | null = null;
+function spawnEngineWorker(): Worker {
+  const src = `import { WebWorkerMLCEngineHandler } from "${WEBLLM_URL}";
+const handler = new WebWorkerMLCEngineHandler();
+self.onmessage = (msg) => handler.onmessage(msg);`;
+  const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+  const w = new Worker(url, { type: "module" });
+  URL.revokeObjectURL(url);
+  return w;
+}
+
 /** Load (or switch to) a local model, narrating download progress in chat. */
 export async function loadLocalModel(modelId: string): Promise<boolean> {
   if (engine && engineModel === modelId) return true;
@@ -73,8 +91,12 @@ export async function loadLocalModel(modelId: string): Promise<boolean> {
     const update = progressNote();
     const onProgress = (p: { text: string }) => update(p.text);
     if (engine) {
-      await engine.unload();
+      await engine.unload().catch(() => {});
       engine = null;
+    }
+    if (worker) {
+      worker.terminate();
+      worker = null;
     }
     // Some models (gemma3) ship a sliding_window_size in their own config that
     // clashes with the record's context_window_size override — the engine
@@ -83,7 +105,18 @@ export async function loadLocalModel(modelId: string): Promise<boolean> {
     const rec = m.prebuiltAppConfig.model_list.find((r: any) => r.model_id === modelId);
     const chatOpts =
       (rec?.overrides?.context_window_size ?? 0) > 0 ? { sliding_window_size: -1 } : undefined;
-    engine = await m.CreateMLCEngine(modelId, { initProgressCallback: onProgress }, chatOpts);
+    try {
+      worker = spawnEngineWorker();
+      engine = await m.CreateWebWorkerMLCEngine(worker, modelId, { initProgressCallback: onProgress }, chatOpts);
+    } catch (workerErr) {
+      // e.g. a CSP that blocks blob workers or cross-origin imports inside
+      // them. Degrade to the main-thread engine (works, but the UI stutters
+      // during generation) rather than losing on-device entirely.
+      console.warn("[local] worker engine failed, falling back to main thread:", workerErr);
+      worker?.terminate();
+      worker = null;
+      engine = await m.CreateMLCEngine(modelId, { initProgressCallback: onProgress }, chatOpts);
+    }
     engineModel = modelId;
     (window as any).__tabagent_engine = engine; // console debugging aid
     note("On-device AI ready ✓");
