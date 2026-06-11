@@ -13,7 +13,7 @@ import {
 import { connectMcp, disconnectMcp, mcpServers } from "./mcp";
 import { runAgent, stopAgent } from "./agent";
 import {
-  setKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
+  setKey, getKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
   getMcpServers, setMcpServers, getModel, setModel, getStoredModel, FALLBACK_MODELS,
 } from "./settings";
 
@@ -59,10 +59,36 @@ if (!connected()) showOnboard(true);
 
 onClick("getkey", () => window.open("https://openrouter.ai/keys", "_blank"));
 
+// Reflect saved-key state: rather than re-render the secret into the password
+// field, show a "✓ Key saved (sk-or-…last4)" chip with a Change button that
+// reveals an empty input. The key already lives in localStorage, so this is no
+// new exposure — it just communicates "you're set up" without showing the key.
+function reflectKeyState() {
+  const entry = document.getElementById("key-entry") as HTMLElement;
+  const saved = document.getElementById("key-saved") as HTMLElement;
+  if (hasKey()) {
+    const k = getKey();
+    const tail = k.length > 4 ? k.slice(-4) : k;
+    document.getElementById("key-saved-label")!.textContent = `Key saved (sk-or-…${tail})`;
+    entry.hidden = true;
+    saved.hidden = false;
+  } else {
+    entry.hidden = false;
+    saved.hidden = true;
+  }
+}
+reflectKeyState();
+onClick("changekey", () => {
+  (document.getElementById("key-entry") as HTMLElement).hidden = false;
+  (document.getElementById("key-saved") as HTMLElement).hidden = true;
+  (document.getElementById("key") as HTMLInputElement).focus();
+});
+
 onClick("savekey", () => {
   setKey(inputValue("key"));
   if (hasKey()) {
     setProvider("openrouter");
+    reflectKeyState();
     showOnboard(false);
     note("Connected! You're all set.");
     say("All connected. What shall we do first?");
@@ -72,8 +98,13 @@ onClick("savekey", () => {
 });
 
 // Optional model override (paid keys can point at Claude/GPT/etc.); persisted,
-// blank falls back to the free default.
-(document.getElementById("model") as HTMLInputElement).value = getStoredModel();
+// prefilled with the saved override. When blank, the placeholder shows the
+// effective free default so the field never reads as "unconfigured".
+{
+  const el = document.getElementById("model") as HTMLInputElement;
+  el.value = getStoredModel();
+  el.placeholder = `${getModel()} (default — leave blank to use it)`;
+}
 onClick("savemodel", () => {
   setModel(inputValue("model"));
   const m = getStoredModel();
@@ -95,8 +126,8 @@ if (getProvider() === "local" && getLocalModel() && gpuAvailable()) {
   loadLocalModel(getLocalModel());
 }
 
-// The ⚙ button just reopens the connection card.
-onClick("settings", () => showOnboard(true));
+// The ⚙ button toggles the connection card — click again to dismiss it.
+onClick("settings", () => showOnboard((document.getElementById("onboard") as HTMLElement).hidden));
 
 // Optional MCP tool servers: several at once, each with an optional bearer
 // token, persisted and reconnected at boot.
