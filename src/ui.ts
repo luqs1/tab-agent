@@ -20,10 +20,18 @@ const esc = (s: string) =>
 // Tiny markdown: fences, inline code, bold, links. Enough for chat replies.
 function md(s: string): string {
   let html = esc(s);
-  html = html.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, code) => `<pre>${code.replace(/\n$/, "")}</pre>`);
+  // Pull fenced blocks out first, leaving a placeholder, so the inline passes
+  // below never reach inside them — backticks/asterisks/links in fenced code
+  // must stay literal. Restored at the end.
+  const blocks: string[] = [];
+  html = html.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, code) => {
+    blocks.push(`<pre>${code.replace(/\n$/, "")}</pre>`);
+    return `\x00${blocks.length - 1}\x00`;
+  });
   html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  html = html.replace(/\x00(\d+)\x00/g, (_, i) => blocks[+i]);
   return html;
 }
 
@@ -74,6 +82,63 @@ export function error(text: string) {
   el.className = "oops";
   el.textContent = text;
   add(el);
+}
+
+/**
+ * Installer consent: the agent wants to hand the user a script to run on their
+ * REAL machine, outside the sandbox. File contents and MCP tool output flow
+ * into context, so a malicious file could try to steer the model into minting a
+ * hostile installer — show the full script and require an explicit click before
+ * anything downloads. Resolves true if approved, false if declined.
+ */
+export function confirmInstaller(command: string, script: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const el = document.createElement("section");
+    el.className = "card instcard";
+
+    const badge = document.createElement("span");
+    badge.className = "wf-badge";
+    badge.textContent = "⚠ Runs on your computer";
+
+    const h = document.createElement("h2");
+    h.textContent = `Download and run “${command}”?`;
+
+    const p = document.createElement("p");
+    p.textContent =
+      "This script runs on your real machine, outside my sandbox — read it through, " +
+      "and only download it if every line looks right to you.";
+
+    const pre = document.createElement("pre");
+    pre.style.cssText =
+      "font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f4efe5;border-radius:10px;padding:12px;max-height:260px;overflow:auto;white-space:pre-wrap";
+    pre.textContent = script; // never innerHTML — script is model/file-influenced
+
+    const row = document.createElement("div");
+    row.className = "step";
+    const ok = document.createElement("button");
+    ok.className = "primary";
+    ok.textContent = "Download it";
+    const no = document.createElement("button");
+    no.className = "ghost";
+    no.textContent = "No thanks";
+    row.append(ok, no);
+
+    el.append(badge, h, p, pre, row);
+    add(el);
+
+    const finish = (approved: boolean) => {
+      row.remove();
+      const status = document.createElement("p");
+      status.style.color = approved ? "var(--ok)" : "var(--muted)";
+      status.textContent = approved
+        ? "✓ Downloaded — it's in your Downloads folder."
+        : "Declined — nothing was downloaded.";
+      el.appendChild(status);
+      resolve(approved);
+    };
+    ok.addEventListener("click", () => finish(true));
+    no.addEventListener("click", () => finish(false));
+  });
 }
 
 /**

@@ -22,6 +22,8 @@ export const hasKey = () => getKey().length > 0;
 
 export const getModel = () => localStorage.getItem(MODEL) || DEFAULT_MODEL;
 export const setModel = (m: string) => localStorage.setItem(MODEL, m.trim());
+/** The raw saved model override ("" when none — getModel() falls back to the default). */
+export const getStoredModel = () => localStorage.getItem(MODEL) ?? "";
 
 // Where the brain lives: "openrouter" (free key) or "local" (WebLLM on-device).
 const PROVIDER = "tab-agent.provider";
@@ -35,7 +37,16 @@ export const setProvider = (p: Provider) => localStorage.setItem(PROVIDER, p);
 export const getLocalModel = () => localStorage.getItem(LOCAL_MODEL) ?? "";
 export const setLocalModel = (m: string) => localStorage.setItem(LOCAL_MODEL, m);
 
-// Optional remote MCP server (Streamable HTTP, must be CORS-friendly).
-const MCP = "tab-agent.mcp_url";
-export const getMcpUrl = () => localStorage.getItem(MCP) ?? "";
-export const setMcpUrl = (u: string) => localStorage.setItem(MCP, u.trim());
+// Optional remote MCP servers (Streamable HTTP, must be CORS-friendly). Several
+// can be connected at once, each with an optional bearer token.
+const MCP = "tab-agent.mcp_servers";
+export type McpServer = { url: string; token?: string };
+export function getMcpServers(): McpServer[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(MCP) || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+export const setMcpServers = (s: McpServer[]) => localStorage.setItem(MCP, JSON.stringify(s));
