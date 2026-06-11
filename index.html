@@ -253,6 +253,10 @@
       @keyframes hop { 30% { transform: translateY(-5px); background: var(--accent); } }
 
       /* ---------- onboarding card ---------- */
+      /* Once connected, the same card opens as plain Settings: the guided
+         onboarding copy (steps, pitches, reassurances) is hidden. */
+      #onboard.settings-mode .onboard-only { display: none; }
+
       .card {
         align-self: stretch;
         background: var(--card);
@@ -484,7 +488,8 @@
       <span class="spacer"></span>
       <span id="folder-chip" class="chip" hidden></span>
       <button id="pick" class="ghost">📁 Share a folder</button>
-      <button id="settings" class="ghost" title="Connection settings">⚙</button>
+      <button id="library-btn" class="ghost" title="Tools &amp; workflows">📦</button>
+      <button id="settings" class="ghost" title="Settings">⚙</button>
     </header>
 
     <main id="chat">
@@ -501,23 +506,23 @@
         </div>
       </section>
       <section id="onboard" class="card" hidden>
-        <h2>One quick thing before we start</h2>
-        <p>I need a model to think with — pick whichever suits you:</p>
-        <p><strong>Connect a free OpenRouter account.</strong> Quick to start and works on any
+        <h2 id="onboard-title">One quick thing before we start</h2>
+        <p class="onboard-only">I need a model to think with — pick whichever suits you:</p>
+        <p class="onboard-only"><strong>Connect a free OpenRouter account.</strong> Quick to start and works on any
         computer — it takes about a minute to set up, and it stays free.</p>
-        <p>Fine for everyday chores; pick the on-device option below
+        <p class="onboard-only">Fine for everyday chores; pick the on-device option below
         for anything you'd rather keep private.</p>
         <div class="step">
-          <span class="n">1</span>
+          <span class="n onboard-only">1</span>
           <button id="getkey" class="ghost">Get my free key ↗</button>
-          <span style="color:#b3aa9b;font-size:14px">(opens openrouter.ai — sign up, copy the key)</span>
+          <span class="onboard-only" style="color:#b3aa9b;font-size:14px">(opens openrouter.ai — sign up, copy the key)</span>
         </div>
         <div class="step">
-          <span class="n">2</span>
+          <span class="n onboard-only">2</span>
           <input id="key" type="password" placeholder="Paste your key here (it starts with sk-or-…)" />
           <button id="savekey" class="primary">Connect</button>
         </div>
-        <p style="font-size:13px;color:#b3aa9b;margin-top:12px">
+        <p class="onboard-only" style="font-size:13px;color:#b3aa9b;margin-top:12px">
           Your key is saved only in this browser, on this computer. It's never sent anywhere except OpenRouter itself.
         </p>
         <p style="font-size:14px;margin-top:12px">Got OpenRouter credit? Pick any model
@@ -528,7 +533,7 @@
         </div>
         <div id="local-section">
           <div class="divider"><span>or, run it on your computer</span></div>
-          <p><strong>On-device AI — no account, totally private, experimental.</strong>
+          <p class="onboard-only"><strong>On-device AI — no account, totally private, experimental.</strong>
           It downloads once (4 to 5 GB), then thinks entirely on your machine: nothing goes
           online, ever. Needs a decent graphics chip — and patience: replies can take a
           minute or two, and it's noticeably less capable than the free key above.</p>
@@ -537,7 +542,13 @@
             <button id="uselocal" class="primary">Use on-device AI</button>
           </div>
         </div>
-        <div class="divider"><span>extra tools (optional)</span></div>
+      </section>
+
+      <!-- The library: extra tools (MCP) + workflow history. Content, not config —
+           lives behind its own 📦 button, and is the natural home for future
+           workflow/tool search and discovery. -->
+      <section id="library" class="card" hidden>
+        <h2>Tools &amp; workflows</h2>
         <p style="font-size:14px">Connect one or more MCP tool servers to give me more abilities — each must
         speak Streamable HTTP and allow browser connections (CORS).</p>
         <div class="step">
