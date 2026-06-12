@@ -11,6 +11,8 @@ import { getKey, getModel, getProvider, FALLBACK_MODELS } from "./settings";
 import { localComplete, localReady } from "./local";
 import { writeInstaller } from "./installer";
 import { encodeWorkflowLink } from "./wf";
+import { bridgePresent } from "./bridge";
+import { cloneRepo } from "./gitclone";
 
 // The key comes from localStorage (see settings.ts).
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -120,9 +122,26 @@ function builtinTools() {
   ];
 }
 
+// Offered only when the companion extension is connected — it's what makes the
+// CORS-free git fetch possible.
+const gitCloneTool = () => ({
+  type: "function",
+  function: {
+    name: "git_clone",
+    description:
+      "Clone a PUBLIC git repository (GitHub) into the shared folder using the real git protocol, via the connected tab.agent extension. Lands a full working tree where shell and python_exec can see it. Input: \"owner/repo\" or a full https URL.",
+    parameters: {
+      type: "object",
+      properties: { repository: { type: "string", description: 'e.g. "octocat/Hello-World"' } },
+      required: ["repository"],
+    },
+  },
+});
+
 function allTools() {
   return [
     ...builtinTools(),
+    ...(bridgePresent() ? [gitCloneTool()] : []),
     ...mcpTools().map((t) => ({
       type: "function",
       function: {
@@ -138,6 +157,10 @@ async function dispatch(name: string, args: any): Promise<string> {
   if (name === "python_exec") return runPython(args.code);
   if (name === "shell") return runShell(args.command);
   if (name === "download_file") return downloadSandboxFile(args.path);
+  if (name === "git_clone") {
+    const r = await cloneRepo(args.repository);
+    return `Cloned ${args.repository} into ${r.dir} (${r.commits} commits, HEAD ${r.head.slice(0, 8)} "${r.headMsg}"). Top-level: ${r.files.join(", ")}. The files are in the shared filesystem now — use shell or python_exec to work with them.`;
+  }
   if (name === "make_workflow_link") {
     const url = await encodeWorkflowLink({ title: args.title, instructions: args.instructions });
     return `Link created (${url.length} chars — fragment stays on-device, never sent to any server):\n${url}\nShow it to the user as a markdown link they can copy.`;
@@ -346,6 +369,7 @@ function describe(name: string, args: any): { label: string; detail?: string } {
   if (name === "python_exec") return { label: "doing a bit of work behind the scenes…", detail: args.code };
   if (name === "shell") return { label: "looking through the files…", detail: args.command };
   if (name === "download_file") return { label: "saving that to your computer…", detail: args.path };
+  if (name === "git_clone") return { label: "cloning that repository…", detail: args.repository };
   if (name === "write_installer") return { label: "preparing a one-click setup file for you…", detail: args.script };
   if (name === "make_workflow_link") return { label: "packing that into a shareable link…", detail: args.instructions };
   return { label: `using ${name.replace(/^mcp__/, "")}…`, detail: JSON.stringify(args, null, 2) };

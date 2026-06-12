@@ -145,6 +145,35 @@ BROWSER TAB (the entire app)
 - Firefox/Safari: OPFS works, but folder sharing (FSA) does not — the app says
   so and dims the button. On-device AI and dictation also do best in Chromium.
 
+## Companion extension (optional power-ups)
+
+tab.agent stays a pure HTML file that works with **no extension**. An optional
+[companion extension](extension/) *expands* what it can do by lending it
+privileged, CORS-free network access on hosts you allow — the work still happens
+on your machine. This sidesteps the install pain of a native app while keeping
+the local-only paradigm: the install permission prompt **is** the consent.
+
+The first power-up: **`git clone` of a public repo over the real git protocol,
+straight into your shared folder** — no CORS proxy, no backend. A plain page
+can't speak git smart-HTTP to GitHub (no CORS headers); the extension does the
+fetch from its own context and hands the bytes back.
+
+- **How**: a content script (tab.agent pages only) relays same-origin requests
+  to a service worker that holds the host permissions and fetches. The page
+  never touches `chrome.*`. See `src/bridge.ts` (web side) and `extension/`.
+- **git**: `src/githttp.ts` is an isomorphic-git http plugin over an injectable
+  fetch — `bridgeFetch` in the browser, Node fetch in tests. `src/gitclone.ts`
+  lands the working tree into Pyodide's FS so shell/python_exec see it. The
+  `git_clone` tool appears only when the extension is connected.
+- **Tests** (`bun run test:e2e`, needs a headed browser): Playwright loads the
+  unpacked extension and proves the whole chain — a CORS-blocked GitHub request
+  fails for the page but succeeds via the extension, then a real clone (3
+  commits of history, files checked out). Plus `bun run test:git` proves the
+  git protocol layer in Node alone.
+- **Install**: no web store. Chrome/Edge: `chrome://extensions` → Developer mode
+  → Load unpacked → `extension/`. Firefox has a cleaner signed path — see
+  [docs/discovery/extension-install.md](docs/discovery/extension-install.md).
+
 ## MCP
 
 Remote servers connect from ⚙ (Streamable HTTP, must allow CORS; persisted,

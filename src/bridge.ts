@@ -72,6 +72,10 @@ export async function bridgeAvailable(): Promise<boolean> {
   return (await bridgeInfo()) !== null;
 }
 
+/** Best-effort sync check: true once the extension's content script has said
+ *  hello (it does so at document_start). For gating UI/tool exposure cheaply. */
+export const bridgePresent = (): boolean => sawHello;
+
 const b64 = {
   enc(bytes: Uint8Array): string {
     let s = "";
