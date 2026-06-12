@@ -12,6 +12,7 @@ import {
 } from "./wf";
 import { connectMcp, disconnectMcp, mcpServers } from "./mcp";
 import { runAgent, stopAgent } from "./agent";
+import { bridgeInfo } from "./bridge";
 import {
   setKey, getKey, hasKey, getProvider, setProvider, getLocalModel, setLocalModel,
   getMcpServers, setMcpServers, getModel, setModel, getStoredModel, FALLBACK_MODELS,
@@ -572,6 +573,13 @@ if (location.protocol === "file:") {
   if (MCP_URL && !getMcpServers().some((s) => s.url === MCP_URL)) await connectMcp(MCP_URL);
   for (const s of getMcpServers()) await connectMcp(s.url, s.token);
   renderMcpServers();
+  // The optional companion extension: if it's there, say so — it unlocks the
+  // power-ups (e.g. real git clone) that a plain web page can't do.
+  const bridge = await bridgeInfo();
+  if (bridge)
+    note(
+      "🔌 Power-up extension connected — I can now do things a normal tab can't: clone a public repo, and open/read/drive your other browser tabs.",
+    );
 })();
 
 // ---- update check: compare our build id against the freshly served page ----

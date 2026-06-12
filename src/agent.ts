@@ -11,6 +11,18 @@ import { getKey, getModel, getProvider, FALLBACK_MODELS } from "./settings";
 import { localComplete, localReady } from "./local";
 import { writeInstaller } from "./installer";
 import { encodeWorkflowLink } from "./wf";
+import {
+  bridgePresent,
+  tabsList,
+  tabOpen,
+  tabClose,
+  tabNavigate,
+  pageRead,
+  pageEval,
+  pageClick,
+  pageFill,
+} from "./bridge";
+import { cloneRepo } from "./gitclone";
 
 // The key comes from localStorage (see settings.ts).
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -120,9 +132,79 @@ function builtinTools() {
   ];
 }
 
+// Offered only when the companion extension is connected — it's what makes the
+// CORS-free git fetch possible.
+const gitCloneTool = () => ({
+  type: "function",
+  function: {
+    name: "git_clone",
+    description:
+      "Clone a PUBLIC git repository (GitHub) into the shared folder using the real git protocol, via the connected tab.agent extension. Lands a full working tree where shell and python_exec can see it. Input: \"owner/repo\" or a full https URL.",
+    parameters: {
+      type: "object",
+      properties: { repository: { type: "string", description: 'e.g. "octocat/Hello-World"' } },
+      required: ["repository"],
+    },
+  },
+});
+
+// Browser-automation tools — offered only when the companion extension is
+// connected. They drive real Chrome tabs (open, inspect, interact), turning
+// tab.agent into an automation harness instead of a sandboxed-only chat.
+function browserTools() {
+  const fn = (name: string, description: string, properties: any, required: string[]) => ({
+    type: "function",
+    function: { name, description, parameters: { type: "object", properties, required } },
+  });
+  return [
+    fn(
+      "browser_open",
+      "Open a URL in a new real browser tab and wait for it to load. Returns its tabId (use it with the other browser_* tools) plus the final url and title.",
+      { url: { type: "string", description: "absolute URL, e.g. https://example.com" } },
+      ["url"],
+    ),
+    fn("browser_tabs", "List the user's currently open browser tabs (tabId, url, title).", {}, []),
+    fn(
+      "browser_read",
+      "Read a tab's RENDERED content (works cross-origin — no CORS limit): its title, visible text, and links. Use this to inspect or scrape a page the user has open or that you opened.",
+      { tabId: { type: "number", description: "from browser_open or browser_tabs" } },
+      ["tabId"],
+    ),
+    fn(
+      "browser_eval",
+      "Run a JavaScript expression in a tab's page context and get its (JSON-stringified) value. Powerful: read DOM, computed values, page globals. Subject to that page's CSP.",
+      {
+        tabId: { type: "number" },
+        expression: { type: "string", description: "e.g. document.querySelectorAll('h2').length" },
+      },
+      ["tabId", "expression"],
+    ),
+    fn(
+      "browser_click",
+      "Click the first element matching a CSS selector in a tab.",
+      { tabId: { type: "number" }, selector: { type: "string", description: "CSS selector" } },
+      ["tabId", "selector"],
+    ),
+    fn(
+      "browser_fill",
+      "Set the value of an input/textarea matching a CSS selector (fires input & change events).",
+      { tabId: { type: "number" }, selector: { type: "string" }, value: { type: "string" } },
+      ["tabId", "selector", "value"],
+    ),
+    fn(
+      "browser_navigate",
+      "Navigate an existing tab to a new URL and wait for load.",
+      { tabId: { type: "number" }, url: { type: "string" } },
+      ["tabId", "url"],
+    ),
+    fn("browser_close", "Close a browser tab by tabId.", { tabId: { type: "number" } }, ["tabId"]),
+  ];
+}
+
 function allTools() {
   return [
     ...builtinTools(),
+    ...(bridgePresent() ? [gitCloneTool(), ...browserTools()] : []),
     ...mcpTools().map((t) => ({
       type: "function",
       function: {
@@ -138,6 +220,11 @@ async function dispatch(name: string, args: any): Promise<string> {
   if (name === "python_exec") return runPython(args.code);
   if (name === "shell") return runShell(args.command);
   if (name === "download_file") return downloadSandboxFile(args.path);
+  if (name === "git_clone") {
+    const r = await cloneRepo(args.repository);
+    return `Cloned ${args.repository} into ${r.dir} (${r.commits} commits, HEAD ${r.head.slice(0, 8)} "${r.headMsg}"). Top-level: ${r.files.join(", ")}. The files are in the shared filesystem now — use shell or python_exec to work with them.`;
+  }
+  if (name.startsWith("browser_")) return dispatchBrowser(name, args);
   if (name === "make_workflow_link") {
     const url = await encodeWorkflowLink({ title: args.title, instructions: args.instructions });
     return `Link created (${url.length} chars — fragment stays on-device, never sent to any server):\n${url}\nShow it to the user as a markdown link they can copy.`;
@@ -145,6 +232,51 @@ async function dispatch(name: string, args: any): Promise<string> {
   if (name === "write_installer") return writeInstaller(args.name, args.script);
   if (name.startsWith("mcp__")) return callMcp(name.slice(5), args);
   return `unknown tool: ${name}`;
+}
+
+// Browser-automation tools, dispatched to the extension bridge. Each returns a
+// short text summary the model can act on.
+async function dispatchBrowser(name: string, args: any): Promise<string> {
+  switch (name) {
+    case "browser_open": {
+      const t = await tabOpen(args.url);
+      return `Opened tab ${t.tabId}: "${t.title ?? ""}" (${t.url}). Use tabId ${t.tabId} with the other browser_* tools.`;
+    }
+    case "browser_tabs": {
+      const { tabs } = await tabsList();
+      if (!tabs.length) return "No open tabs.";
+      return tabs.map((t) => `#${t.tabId}${t.active ? "*" : ""} ${t.title ?? ""} — ${t.url ?? ""}`).join("\n");
+    }
+    case "browser_read": {
+      const p = await pageRead(args.tabId);
+      const links = p.links
+        .slice(0, 50)
+        .map((l) => `- ${l.text || "(no text)"} → ${l.href}`)
+        .join("\n");
+      return `# ${p.title}\n${p.url}\n\n${p.text}\n\n## Links\n${links}`;
+    }
+    case "browser_eval": {
+      const r = await pageEval(args.tabId, args.expression);
+      return r.error ? `Error: ${r.error}` : (r.value ?? "undefined");
+    }
+    case "browser_click": {
+      const r = await pageClick(args.tabId, args.selector);
+      return r.found ? `Clicked ${args.selector}.` : `No element matched ${args.selector}.`;
+    }
+    case "browser_fill": {
+      const r = await pageFill(args.tabId, args.selector, args.value ?? "");
+      return r.found ? `Filled ${args.selector}.` : `No element matched ${args.selector}.`;
+    }
+    case "browser_navigate": {
+      const t = await tabNavigate(args.tabId, args.url);
+      return `Tab ${t.tabId} is now at ${t.url} ("${t.title ?? ""}").`;
+    }
+    case "browser_close": {
+      await tabClose(args.tabId);
+      return `Closed tab ${args.tabId}.`;
+    }
+  }
+  return `unknown browser tool: ${name}`;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -346,6 +478,15 @@ function describe(name: string, args: any): { label: string; detail?: string } {
   if (name === "python_exec") return { label: "doing a bit of work behind the scenes…", detail: args.code };
   if (name === "shell") return { label: "looking through the files…", detail: args.command };
   if (name === "download_file") return { label: "saving that to your computer…", detail: args.path };
+  if (name === "git_clone") return { label: "cloning that repository…", detail: args.repository };
+  if (name === "browser_open") return { label: "opening a browser tab…", detail: args.url };
+  if (name === "browser_tabs") return { label: "checking your open tabs…" };
+  if (name === "browser_read") return { label: "reading that page…", detail: `tab ${args.tabId}` };
+  if (name === "browser_eval") return { label: "inspecting that page…", detail: args.expression };
+  if (name === "browser_click") return { label: "clicking on the page…", detail: args.selector };
+  if (name === "browser_fill") return { label: "filling that in…", detail: `${args.selector} = ${args.value}` };
+  if (name === "browser_navigate") return { label: "navigating that tab…", detail: args.url };
+  if (name === "browser_close") return { label: "closing a tab…", detail: `tab ${args.tabId}` };
   if (name === "write_installer") return { label: "preparing a one-click setup file for you…", detail: args.script };
   if (name === "make_workflow_link") return { label: "packing that into a shareable link…", detail: args.instructions };
   return { label: `using ${name.replace(/^mcp__/, "")}…`, detail: JSON.stringify(args, null, 2) };
