@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "tab.agent bridge",
+  "version": "0.1.0",
+  "description": "Lends tab.agent privileged, CORS-free network access on the hosts you allow — so it can do things a plain web page can't (e.g. a real git clone), with the work staying on your machine.",
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://luqs1.github.io/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "host_permissions": [
+    "https://github.com/*",
+    "https://*.githubusercontent.com/*",
+    "https://api.github.com/*",
+    "https://codeload.github.com/*"
+  ]
+}
