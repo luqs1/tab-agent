@@ -7,11 +7,20 @@ machine.
 
 ## What it unlocks
 
-A normal web page can't fetch from servers that don't opt into CORS (most of
-them), and can't speak the git protocol to GitHub. The extension does those
-fetches from its own context (where CORS doesn't apply) and hands the bytes
-back to the page. First payoff: **`git clone` of a public repo, over the real
-git protocol, straight into your shared folder** — no proxy, no backend.
+Two kinds of power a plain web page can't have:
+
+1. **CORS-free fetches.** A normal page can't fetch from servers that don't opt
+   into CORS (most of them), and can't speak the git protocol to GitHub. The
+   extension fetches from its own context (where CORS doesn't apply) and hands
+   the bytes back. Headline payoff: **`git clone` of a public repo, over the
+   real git protocol, straight into your shared folder** — no proxy, no backend.
+
+2. **Browser control.** The agent can open, read, and drive your other browser
+   tabs — `browser_open`, `browser_tabs`, `browser_read` (rendered text + links,
+   cross-origin), `browser_eval` (run an expression in the page), `browser_click`,
+   `browser_fill`, `browser_navigate`, `browser_close`. That turns tab.agent from
+   a sandboxed chat into a real automation harness: "open this page and pull out
+   the prices", "fill this form", "what's on the tab I have open?"
 
 ## How it works (and why it's safe-ish)
 
@@ -41,7 +50,16 @@ No web store. Developer mode:
 
 ## Scope
 
-Default `host_permissions` cover GitHub only (`github.com`, `*.githubusercontent.com`,
-`api.github.com`, `codeload.github.com`). That's all the git-clone power-up needs.
-Add hosts to broaden the bridge; `<all_urls>` makes it a general CORS-free fetch
-proxy (powerful — and a scarier prompt).
+This version requests broad access so the browser-control tools work on any tab:
+
+- `host_permissions: <all_urls>` — CORS-free fetch of any host, and script
+  injection into any tab you ask the agent to drive.
+- `tabs` + `scripting` — enumerate tabs and run the read/click/fill/eval helpers.
+
+That's a powerful (and honest) install prompt: with it, the page you trust can
+ask the extension to fetch anything and to read/drive any tab. The page can only
+reach the narrow ops in `background.js` — never `chrome.*` directly — and the
+content script still only injects into tab.agent's own origins. If you want to
+narrow it, replace `<all_urls>` with a specific host list (git clone alone needs
+only `github.com`, `*.githubusercontent.com`, `api.github.com`,
+`codeload.github.com`); the browser-control tools then work only on matching tabs.

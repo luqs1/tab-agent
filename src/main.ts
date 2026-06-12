@@ -576,7 +576,10 @@ if (location.protocol === "file:") {
   // The optional companion extension: if it's there, say so — it unlocks the
   // power-ups (e.g. real git clone) that a plain web page can't do.
   const bridge = await bridgeInfo();
-  if (bridge) note("🔌 Power-up extension connected — I can now do a few things a normal tab can't, like cloning a public repo.");
+  if (bridge)
+    note(
+      "🔌 Power-up extension connected — I can now do things a normal tab can't: clone a public repo, and open/read/drive your other browser tabs.",
+    );
 })();
 
 // ---- update check: compare our build id against the freshly served page ----

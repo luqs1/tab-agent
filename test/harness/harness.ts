@@ -2,7 +2,17 @@
 // for Playwright to drive. Served from localhost so the extension's content
 // script injects. Nothing app-specific here — this isolates the bridge+git
 // proof.
-import { bridgeInfo, bridgeFetch } from "../../src/bridge";
+import {
+  bridgeInfo,
+  bridgeFetch,
+  tabsList,
+  tabOpen,
+  tabClose,
+  pageRead,
+  pageEval,
+  pageClick,
+  pageFill,
+} from "../../src/bridge";
 import { makeGitHttp, type FetchLike } from "../../src/githttp";
 import git from "isomorphic-git";
 import LightningFS from "@isomorphic-git/lightning-fs";
@@ -56,6 +66,38 @@ const bridgeFetchLike: FetchLike = (url, init) => bridgeFetch(url, init);
         headMsg: log[0].commit.message.trim().split("\n")[0],
         author: log[0].commit.author.name,
         files: files.filter((f) => f !== ".git"),
+      };
+    } catch (e) {
+      return { ok: false, error: String((e as Error).message || e) };
+    }
+  },
+
+  // Browser control: open a real tab, inspect/drive it, close it. Proves the
+  // chrome.tabs + chrome.scripting chain through the bridge.
+  browser: async (url: string) => {
+    try {
+      const opened = await tabOpen(url);
+      const tabId = opened.tabId;
+      const tabs = (await tabsList()).tabs;
+      const content = await pageRead(tabId);
+      const titleEval = await pageEval(tabId, "document.title");
+      const fill = await pageFill(tabId, "#name", "neo");
+      const click = await pageClick(tabId, "#go");
+      const afterEval = await pageEval(tabId, "document.title");
+      await tabClose(tabId);
+      const listGone = (await tabsList()).tabs.some((t) => t.tabId === tabId);
+      return {
+        ok: true,
+        tabId,
+        openedTitle: opened.title,
+        listed: tabs.some((t) => t.tabId === tabId),
+        text: content.text,
+        links: content.links.map((l) => l.href),
+        evalTitle: titleEval.value,
+        filled: fill.found,
+        clicked: click.found,
+        titleAfterClick: afterEval.value,
+        closed: !listGone,
       };
     } catch (e) {
       return { ok: false, error: String((e as Error).message || e) };

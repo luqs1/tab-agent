@@ -84,6 +84,28 @@ try {
   check("real git clone via the extension", clone.ok === true && clone.commits >= 1 && /^[0-9a-f]{40}$/.test(clone.head || ""),
     clone.ok ? `${clone.commits} commits, HEAD ${String(clone.head).slice(0, 8)} "${clone.headMsg}", files: ${clone.files.join(", ")}` : clone.error);
 
+  // 4. Browser control: open a real second tab, read/eval/fill/click/close it.
+  const fixture = base + "fixture.html";
+  const br: any = await page.evaluate(`window.__h.browser(${JSON.stringify(fixture)})`, null);
+  check(
+    "browser: opened a real tab",
+    br.ok === true && typeof br.tabId === "number" && br.openedTitle === "Fixture Title",
+    br.ok ? `tab ${br.tabId} "${br.openedTitle}"` : br.error,
+  );
+  check("browser: tab appears in tabs.list", br.ok === true && br.listed === true);
+  check(
+    "browser: read rendered cross-tab content",
+    br.ok === true && /Fixture Heading/.test(br.text || "") && (br.links || []).includes("https://example.com/probe"),
+    br.ok ? `${(br.text || "").length} chars, ${(br.links || []).length} links` : "",
+  );
+  check("browser: eval in page context", br.ok === true && br.evalTitle === '"Fixture Title"', br.evalTitle);
+  check(
+    "browser: fill + click took effect",
+    br.ok === true && br.filled && br.clicked && br.titleAfterClick === '"filled:neo"',
+    br.titleAfterClick,
+  );
+  check("browser: closed the tab", br.ok === true && br.closed === true);
+
   console.log("");
   console.log(failures === 0 ? "🎉 ALL E2E CHECKS PASSED" : `💥 ${failures} CHECK(S) FAILED`);
 } finally {

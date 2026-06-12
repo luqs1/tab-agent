@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Fixture Title</title>
+  </head>
+  <body>
+    <h2>Fixture Heading</h2>
+    <p>A page opened and driven by the bridge during E2E.</p>
+    <a href="https://example.com/probe">Probe Link</a>
+    <input id="name" type="text" />
+    <button id="go">Go</button>
+    <div id="result"></div>
+    <script>
+      // Clicking #go reflects the input value into the title and the DOM, so the
+      // driver can prove fill+click actually took effect via a follow-up eval.
+      document.getElementById("go").addEventListener("click", () => {
+        const v = document.getElementById("name").value;
+        document.title = "filled:" + v;
+        document.getElementById("result").textContent = "filled:" + v;
+      });
+    </script>
+  </body>
+</html>
